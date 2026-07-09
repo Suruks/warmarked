@@ -40,7 +40,7 @@ const PERSIST_ROUNDS := 0              # капкан/засада живут р
 # --- Способности: мана и урон (дайлы §9) ---
 const HUNTER_HP := 11
 const FAIRY_HP := 12
-const CRYSTAL_HP := 10
+const CRYSTAL_HP := 13
 
 const HUNTER_ATK_DMG := 2
 const FAIRY_ATK_DMG := 2
@@ -59,13 +59,13 @@ const SHOTGUN_MANA := 3
 const SHOTGUN_DMG := 5
 const SHOTGUN_KNOCKBACK := 1
 
-const CANCEL_MANA := 1
+const CANCEL_MANA := 2
 
-const HEAL_MANA := 2
-const HEAL_AMOUNT := 4
+const HEAL_MANA := 3
+const HEAL_AMOUNT := 5
 const HEAL_RADIUS := 2
 
-const FLASH_MANA := 3
+const FLASH_MANA := 2
 const FLASH_DMG := 4
 
 const JUMP_MANA := 1
@@ -77,7 +77,7 @@ const AMBUSH_DMG := 5
 const DASH_MANA := 3
 const DASH_DMG := 4
 
-const CRYSTAL_PASSIVE_REDUCTION := 1   # −1 урона от любого эффекта, пол 0
+const CRYSTAL_PASSIVE_REDUCTION := 0   # пассивка снята (0 = без снижения урона)
 
 const ORDER_SLOTS := 4
 

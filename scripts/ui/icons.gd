@@ -31,11 +31,17 @@ static func hero(hero_type: int) -> Texture2D:
 	return null
 
 
-# Иконка действия (базовая атака / способность). Ход (MOVE) иконки не имеет → null.
+# Иконка действия (ход / базовая атака / способность). Пустой слот → null.
 static func skill(hero_type: int, action: int) -> Texture2D:
+	if action == Consts.Action.MOVE:
+		return tex(DIR + "move.png")
 	if action == Consts.Action.ATTACK:
+		match hero_type:
+			Consts.HeroType.HUNTER: return tex(DIR + "shot.png")
+			Consts.HeroType.FAIRY: return tex(DIR + "wisp.png")
+			Consts.HeroType.CRYSTAL: return tex(DIR + "claws.png")
 		return tex(DIR + "base_attack.png")
-	if action == Consts.Action.MOVE or action == Consts.Action.EMPTY:
+	if action == Consts.Action.EMPTY:
 		return null
 	var idx := action - Consts.Action.ABILITY1   # 0..2
 	match hero_type:

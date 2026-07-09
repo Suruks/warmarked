@@ -50,7 +50,7 @@ static func ability(hero_type: int, idx: int) -> AbilityDef:
 		Consts.HeroType.HUNTER:
 			match idx:
 				0: return AbilityDef.new("Капкан", Consts.TRAP_MANA, Target.CELL,
-						"капкан в радиусе 2; враг вошёл -> %d урона + обездвижен" % Consts.TRAP_DMG)
+						"капкан в радиусе 2; враг вошёл -> %d урона + обездвижен; действует до конца хода" % Consts.TRAP_DMG)
 				1: return AbilityDef.new("Снайп", Consts.SNIPE_MANA, Target.CELL,
 						"прямая 2-7, %d урона (только слот 3-4)" % Consts.SNIPE_DMG, [2, 3])
 				2: return AbilityDef.new("Дробь", Consts.SHOTGUN_MANA, Target.CELL,
@@ -58,7 +58,7 @@ static func ability(hero_type: int, idx: int) -> AbilityDef:
 		Consts.HeroType.FAIRY:
 			match idx:
 				0: return AbilityDef.new("Отмена", Consts.CANCEL_MANA, Target.CELL,
-						"щит себе или союзнику рядом: гасит следующий эффект по нему")
+						"щит себе или союзнику рядом: отменяет следующий эффект по нему")
 				1: return AbilityDef.new("Лечение", Consts.HEAL_MANA, Target.CELL,
 						"хил %d союзнику в радиусе 2" % Consts.HEAL_AMOUNT)
 				2: return AbilityDef.new("Вспышка", Consts.FLASH_MANA, Target.NONE,
