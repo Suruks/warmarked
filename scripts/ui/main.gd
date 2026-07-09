@@ -9,7 +9,7 @@ enum Phase { MENU, HANDOFF, PLAN, RESOLVE, VICTORY }
 
 const BOARD_X := 4
 const BOARD_Y := 42
-const DEFAULT_HOST := "127.0.0.1"
+const DEFAULT_HOST := "wss://warmarked.duckdns.org"
 
 var state: MatchState
 var resolver := Resolver.new()
@@ -166,13 +166,6 @@ func _show_menu() -> void:
 	host.placeholder_text = "IP сервера или wss://домен"
 	host.add_theme_font_size_override("font_size", 18)
 	box.add_child(host)
-	var hint := Label.new()
-	hint.text = "IP → ws://…:8910;  для Pages/HTTPS введи wss://твой-домен"
-	hint.add_theme_font_size_override("font_size", 13)
-	hint.add_theme_color_override("font_color", Color(0.65, 0.7, 0.78))
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(hint)
 
 	var b_online := Button.new()
 	b_online.text = "Онлайн (найти игру)"
