@@ -42,18 +42,28 @@ func start_server(port: int = DEFAULT_PORT) -> int:
 	return OK
 
 
-func start_client(host: String, port: int = DEFAULT_PORT) -> int:
+# address: голый IP/хост → ws://host:8910; либо полный URL wss://домен (TLS через прокси, порт 443)
+func start_client(address: String) -> int:
+	var url := _build_ws_url(address)
 	var peer := WebSocketMultiplayerPeer.new()
-	var err := peer.create_client("ws://%s:%d" % [host, port])
+	var err := peer.create_client(url)
 	if err != OK:
-		push_error("Не удалось подключиться к %s:%d: %s" % [host, port, err])
+		push_error("Не удалось подключиться к %s: %s" % [url, err])
 		return err
 	multiplayer.multiplayer_peer = peer
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.connection_failed.connect(_on_connect_failed)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 	is_server = false
+	print("[client] подключаюсь к %s" % url)
 	return OK
+
+
+func _build_ws_url(address: String) -> String:
+	address = address.strip_edges()
+	if address.begins_with("ws://") or address.begins_with("wss://"):
+		return address              # пользователь задал схему сам (напр. wss://name.duckdns.org)
+	return "ws://%s:%d" % [address, DEFAULT_PORT]   # голый IP/хост → ws:// на дефолтном порту
 
 
 func disconnect_net() -> void:
