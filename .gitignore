@@ -1,0 +1,7 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Экспортные сборки и временные файлы
+/build/
+/tests/_capture.png

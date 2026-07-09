@@ -1,0 +1,194 @@
+class_name MatchState
+extends RefCounted
+
+## Всё динамическое состояние матча: доска, юниты, очки, номер раунда, персистентные
+## эффекты (капканы/засады). Housekeeping раунда (мана, респ, экспирация) и подсчёт очков.
+## Боевое разрешение делает Resolver, но он мутирует именно этот объект.
+
+var board: Board
+var units: Array[Unit] = []
+var score := {Consts.Player.A: 0, Consts.Player.B: 0}
+var round_num: int = 0
+var a_first_on_odd: bool = true          # жеребьёвка: A ходит первым в нечётные раунды
+
+# Персистентные эффекты
+var traps: Array = []      # [{cell:Vector2i, owner_player:int, owner_id:int, expire_round:int}]
+var ambushes: Array = []   # [{owner_id:int, expire_round:int}]
+
+var winner: int = -1       # Consts.Player или -1
+
+
+func setup() -> void:
+	board = Board.new()
+	units.clear()
+	# A внизу (y=6), B зеркально сверху (y=0), симметрия 180°.
+	_add_unit(0, Consts.Player.A, Consts.HeroType.HUNTER, Vector2i(1, 6))
+	_add_unit(1, Consts.Player.A, Consts.HeroType.FAIRY, Vector2i(3, 6))
+	_add_unit(2, Consts.Player.A, Consts.HeroType.CRYSTAL, Vector2i(5, 6))
+	_add_unit(3, Consts.Player.B, Consts.HeroType.HUNTER, Vector2i(5, 0))
+	_add_unit(4, Consts.Player.B, Consts.HeroType.FAIRY, Vector2i(3, 0))
+	_add_unit(5, Consts.Player.B, Consts.HeroType.CRYSTAL, Vector2i(1, 0))
+
+
+func _add_unit(id: int, owner: int, hero_type: int, cell: Vector2i) -> void:
+	units.append(Unit.new(id, owner, hero_type, cell))
+
+
+func get_unit(id: int) -> Unit:
+	for u in units:
+		if u.id == id:
+			return u
+	return null
+
+
+func unit_at(cell: Vector2i) -> Unit:
+	for u in units:
+		if u.alive and u.cell == cell:
+			return u
+	return null
+
+
+# Есть ли на клетке могила (мёртвый юнит на клетке смерти)
+func grave_at(cell: Vector2i) -> bool:
+	for u in units:
+		if not u.alive and u.cell == cell:
+			return true
+	return false
+
+
+func living_units() -> Array[Unit]:
+	var out: Array[Unit] = []
+	for u in units:
+		if u.alive:
+			out.append(u)
+	return out
+
+
+func units_of(player: int) -> Array[Unit]:
+	var out: Array[Unit] = []
+	for u in units:
+		if u.owner == player:
+			out.append(u)
+	return out
+
+
+func first_player_this_round() -> int:
+	# если round_num нечётный, первым ходит A (при a_first_on_odd), иначе инверсия
+	if round_num % 2 == 1:
+		return Consts.Player.A if a_first_on_odd else Consts.Player.B
+	else:
+		return Consts.Player.B if a_first_on_odd else Consts.Player.A
+
+
+func add_score(player: int, pts: int) -> void:
+	score[player] += pts
+	if score[player] >= Consts.WIN_SCORE and winner < 0:
+		winner = player
+
+
+# --- Начало раунда: инкремент, мана, снятие/взвод эффектов, респ, экспирация ---
+func begin_round() -> Array:
+	round_num += 1
+	var events: Array = []
+	for u in units:
+		u.shield_armed = false
+		u.immobilized = u.immobilize_pending
+		u.immobilize_pending = false
+		if u.alive and round_num > 1:
+			u.mana += 1
+	# Респ мёртвых
+	for u in units:
+		if not u.alive:
+			u.dead_timer -= 1
+			if u.dead_timer <= 0:
+				_try_respawn(u, events)
+	# Экспирация капканов/засад
+	var kept_traps: Array = []
+	for t in traps:
+		if t.expire_round >= round_num:
+			kept_traps.append(t)
+	traps = kept_traps
+	var kept_amb: Array = []
+	for a in ambushes:
+		var owner := get_unit(a.owner_id)
+		if a.expire_round >= round_num and owner != null and owner.alive:
+			kept_amb.append(a)
+	ambushes = kept_amb
+	return events
+
+
+func _try_respawn(u: Unit, events: Array) -> void:
+	var blocker := unit_at(u.death_cell)
+	if blocker != null:
+		# Вариант A: пока блокер стоит — респа нет, блокер ест урон
+		var dmg := _apply_camp_damage(blocker)
+		events.append(_ev(Consts.EventType.RESPAWN_BLOCKED,
+			"Респ %s заблокирован: %s на клетке смерти получает %d" % [u.full_name(), blocker.full_name(), dmg]))
+		u.dead_timer = 0  # повторить попытку в следующем раунде
+	else:
+		u.alive = true
+		u.hp = u.max_hp
+		u.cell = u.death_cell
+		u.dead_timer = 0
+		events.append(_ev(Consts.EventType.RESPAWN,
+			"%s воскрешается на (%d,%d)" % [u.full_name(), u.death_cell.x, u.death_cell.y]))
+
+
+# Урон блокеру клетки респа — без начисления очков (средовой)
+func _apply_camp_damage(blocker: Unit) -> int:
+	var amount := Consts.BLOCKER_DMG
+	if blocker.hero_type == Consts.HeroType.CRYSTAL:
+		amount = max(0, amount - Consts.CRYSTAL_PASSIVE_REDUCTION)
+	blocker.hp -= amount
+	if blocker.hp <= 0:
+		blocker.alive = false
+		blocker.death_cell = blocker.cell
+		blocker.dead_timer = Consts.RESPAWN_DELAY
+	return amount
+
+
+# --- Подсчёт очков в конце раунда (киллы уже начислены в резолве) ---
+func score_round(events: Array) -> void:
+	var a := 0
+	var b := 0
+	for cp in board.control_points:
+		var u := unit_at(cp)
+		if u != null:
+			if u.owner == Consts.Player.A:
+				a += 1
+			else:
+				b += 1
+	if a > b:
+		add_score(Consts.Player.A, Consts.CONTROL_POINTS_PER_ROUND)
+		events.append(_ev(Consts.EventType.SCORE, "Контроль точек: A держит %d:%d -> +%d A" % [a, b, Consts.CONTROL_POINTS_PER_ROUND]))
+	elif b > a:
+		add_score(Consts.Player.B, Consts.CONTROL_POINTS_PER_ROUND)
+		events.append(_ev(Consts.EventType.SCORE, "Контроль точек: B держит %d:%d -> +%d B" % [b, a, Consts.CONTROL_POINTS_PER_ROUND]))
+	else:
+		events.append(_ev(Consts.EventType.INFO, "Контроль точек: равенство %d:%d, очко никому" % [a, b]))
+
+
+func _ev(type: int, text: String) -> Dictionary:
+	return {"type": type, "text": text, "snapshot": snapshot()}
+
+
+func snapshot() -> Dictionary:
+	var us: Array = []
+	for u in units:
+		us.append(u.snapshot())
+	var ts: Array = []
+	for t in traps:
+		ts.append({"cell": t.cell, "owner": t.owner_player})
+	var ams: Array = []
+	for a in ambushes:
+		var owner := get_unit(a.owner_id)
+		if owner != null and owner.alive:
+			ams.append({"cell": owner.cell, "owner": owner.owner})
+	return {
+		"units": us,
+		"traps": ts,
+		"ambushes": ams,
+		"score_a": score[Consts.Player.A],
+		"score_b": score[Consts.Player.B],
+		"round": round_num,
+	}

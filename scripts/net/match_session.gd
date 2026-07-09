@@ -1,0 +1,53 @@
+class_name MatchSession
+extends RefCounted
+
+## Авторитетная сессия одного матча на сервере (транспортно-независимая).
+## Держит приказы обоих игроков СКРЫТО, пока не пришли оба (слепой гейт), затем разрешает.
+## Клиенты держат детерминированную копию и приходят к тому же результату по обмену приказами.
+##
+## Индексы игроков: 0 = Consts.Player.A, 1 = Consts.Player.B.
+
+var state: MatchState
+var _orders: Array = [null, null]   # приказы игроков 0/1 (Array[Order]) или null
+
+
+func _init(a_first_on_odd: bool) -> void:
+	state = MatchState.new()
+	state.setup()
+	state.a_first_on_odd = a_first_on_odd
+	state.begin_round()   # раунд 1: доход/хаускипинг
+
+
+func current_round() -> int:
+	return state.round_num
+
+
+func both_submitted() -> bool:
+	return _orders[0] != null and _orders[1] != null
+
+
+# Приказы игрока приняты. Возвращает true, если теперь пришли оба (можно раскрывать).
+func submit(player_index: int, orders: Array) -> bool:
+	_orders[player_index] = orders
+	return both_submitted()
+
+
+func orders_of(player_index: int) -> Array:
+	return _orders[player_index]
+
+
+# Разрешить раунд, вернуть {winner:int, round:int}. Продвигает раунд, если игра не окончена.
+func resolve() -> Dictionary:
+	var resolved_round := state.round_num
+	var oa: Array = _orders[0]
+	var ob: Array = _orders[1]
+	var first := state.first_player_this_round()
+	var r := Resolver.new()
+	r.resolve(state, oa, ob, first)
+	var score_ev: Array = []
+	state.score_round(score_ev)
+	_orders = [null, null]
+	var winner := state.winner
+	if winner < 0:
+		state.begin_round()   # следующий раунд
+	return {"winner": winner, "round": resolved_round}
