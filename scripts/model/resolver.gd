@@ -76,6 +76,8 @@ func _do_move(state: MatchState, unit: Unit, path: Array, events: Array) -> void
 			"%s -> (%d,%d)" % [unit.full_name(), cur.x, cur.y])
 		if not unit.alive:
 			return
+		if unit.immobilized:   # наступил на капкан посреди пути — застрял здесь, дальше не идёт
+			return
 
 
 # Перемещает юнита на клетку, логирует и проверяет капканы/засады
@@ -98,7 +100,7 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 				_push(events, state, Consts.EventType.SHIELD_ABSORB,
 					"Щит %s поглотил капкан (урон и обездвиживание)" % unit.full_name())
 			else:
-				unit.immobilize_pending = true
+				unit.immobilized = true   # замер СРАЗУ: гасит остаток движения в этом же раунде
 				_deal_damage(state, unit, Consts.TRAP_DMG, t.owner_player, events, "капкан")
 			if not unit.alive:
 				return
@@ -158,8 +160,13 @@ func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int,
 
 func _kill(state: MatchState, target: Unit, src_player: int, events: Array) -> void:
 	target.alive = false
-	target.death_cell = target.cell
+	var died_at := target.cell
+	target.death_cell = died_at
 	target.dead_timer = Consts.RESPAWN_DELAY
+	# Могила — это МАРКЕР ВОСКРЕШЕНИЯ: ставим её в клетку, где герой поднимется, а не туда,
+	# где его убили. Оба игрока заранее видят, где и через сколько он вернётся (открытая инфа).
+	var rc := state.respawn_cell_for(target)
+	target.cell = rc if rc.x >= 0 else died_at
 	# снять засаду убитого
 	var kept: Array = []
 	for a in state.ambushes:
@@ -167,7 +174,7 @@ func _kill(state: MatchState, target: Unit, src_player: int, events: Array) -> v
 			kept.append(a)
 	state.ambushes = kept
 	_push(events, state, Consts.EventType.DEATH,
-		"%s погибает на (%d,%d)" % [target.full_name(), target.cell.x, target.cell.y])
+		"%s погибает на (%d,%d)" % [target.full_name(), died_at.x, died_at.y])
 	if src_player != target.owner:
 		state.add_score(src_player, Consts.KILL_POINTS)
 		_push(events, state, Consts.EventType.KILL,

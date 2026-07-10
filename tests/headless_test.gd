@@ -22,7 +22,8 @@ func _initialize() -> void:
 	test_respawn_delay_misses_one_full_round()
 	test_control_point_majority()
 	test_crystal_no_passive()
-	test_immobilize_blocks_next_move()
+	test_immobilize_same_turn_only()
+	test_grave_at_respawn_cell()
 	test_multi_round_income_and_control()
 	test_fairy_shield_ally()
 	test_shield_nontarget_and_order()
@@ -110,7 +111,7 @@ func test_trap_immobilize_then_snipe() -> void:
 	r.resolve(s, oa, ob, Consts.Player.A)
 	var expect := Consts.CRYSTAL_HP - Consts.TRAP_DMG - Consts.SNIPE_DMG
 	_check(b.hp == expect, "капкан+снайп по обездвиженному: HP %d [%d]" % [expect, b.hp])
-	_check(b.immobilize_pending, "капкан выставил обездвиживание")
+	_check(b.immobilized, "капкан выставил обездвиживание сразу")
 	_check(b.cell == Vector2i(2, 4), "жертва на клетке капкана")
 
 
@@ -128,7 +129,7 @@ func test_snipe_slot_gate() -> void:
 func test_shotgun_knockback_collision() -> void:
 	var s := _fresh()
 	s.board.obstacles = {}                            # чистое поле для предсказуемости
-	_place(s, 0, Vector2i(5, 5)).mana = 3             # A hunter (дробь 3)
+	_place(s, 0, Vector2i(5, 5)).mana = Consts.SHOTGUN_MANA            # A hunter (дробь 3)
 	var b := _place(s, 4, Vector2i(6, 6), 12)         # B fairy на диагонали у угла
 	var oa := _slots()
 	oa[0] = Order.make(0, Consts.Action.ABILITY3, Vector2i(6, 6))  # дробь по диагонали
@@ -142,7 +143,7 @@ func test_shotgun_knockback_collision() -> void:
 func test_kill_scoring() -> void:
 	var s := _fresh()
 	_place(s, 1, Vector2i(0, 0))                      # увести A fairy
-	_place(s, 0, Vector2i(3, 4)).mana = 2             # A hunter (снайп 2)
+	_place(s, 0, Vector2i(3, 4)).mana = Consts.SNIPE_MANA            # A hunter (снайп 2)
 	var b := _place(s, 4, Vector2i(3, 2), 5)          # B fairy hp5 (линия (3,4)->(3,2) чиста)
 	var oa := _slots()
 	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(3, 2))  # снайп 7 в слот 3
@@ -236,19 +237,39 @@ func test_crystal_no_passive() -> void:
 	_check(crystal.hp == expect, "кристалл без пассивки: вспышка бьёт полностью, HP %d [%d]" % [expect, crystal.hp])
 
 
-func test_immobilize_blocks_next_move() -> void:
+func test_grave_at_respawn_cell() -> void:
+	# Могила ставится в клетку воскрешения (домашнюю), а death_cell помнит, где реально убили.
 	var s := _fresh()
-	var u := s.get_unit(5)
-	u.immobilize_pending = true
-	s.begin_round()   # → immobilized становится активным
-	_check(u.immobilized, "обездвиживание перенеслось на новый раунд")
-	var start := u.cell
+	_place(s, 1, Vector2i(0, 0))                       # увести A fairy с линии
+	_place(s, 0, Vector2i(3, 4)).mana = Consts.SNIPE_MANA
+	var b := _place(s, 4, Vector2i(3, 2), 3)           # B fairy (дом (3,0)), hp3 — снайп убьёт
 	var oa := _slots()
+	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(not b.alive, "снайп убил цель")
+	_check(b.death_cell == Vector2i(3, 2), "death_cell помнит место гибели (3,2) [%s]" % b.death_cell)
+	_check(b.cell == b.home_cell, "могила стоит в клетке воскрешения (дом) [%s]" % b.cell)
+
+
+func test_immobilize_same_turn_only() -> void:
+	# Капкан замораживает В ТОМ ЖЕ раунде: остаток движения гасится, но следующий раунд свободен.
+	var s := _fresh()
+	var c := _place(s, 5, Vector2i(1, 4))   # B crystal
+	s.traps.append({"cell": Vector2i(2, 4), "owner_player": Consts.Player.A,
+			"owner_id": 0, "expire_round": s.round_num})
 	var ob := _slots()
-	ob[0] = Order.make_move(5, [Vector2i(0, -1)] as Array[Vector2i])
-	var r := Resolver.new()
-	r.resolve(s, oa, ob, Consts.Player.A)
-	_check(u.cell == start, "обездвиженный не сдвинулся")
+	ob[0] = Order.make_move(5, [Vector2i(1, 0)] as Array[Vector2i])   # (1,4)->(2,4) в капкан
+	ob[1] = Order.make_move(5, [Vector2i(1, 0)] as Array[Vector2i])   # попытка идти дальше тем же ходом
+	Resolver.new().resolve(s, _slots(), ob, Consts.Player.A)
+	_check(c.immobilized, "капкан: обездвижен сразу в этом же раунде")
+	_check(c.cell == Vector2i(2, 4), "капкан: застрял на месте, второй слот-ход не сработал [%s]" % c.cell)
+	# следующий раунд — обездвиживание снято, снова ходит
+	s.begin_round()
+	_check(not c.immobilized, "новый раунд: обездвиживание снято")
+	var ob2 := _slots()
+	ob2[0] = Order.make_move(5, [Vector2i(1, 0)] as Array[Vector2i])   # (2,4)->(3,4)
+	Resolver.new().resolve(s, _slots(), ob2, Consts.Player.A)
+	_check(c.cell == Vector2i(3, 4), "новый раунд: снова может ходить [%s]" % c.cell)
 
 
 func test_multi_round_income_and_control() -> void:
@@ -294,7 +315,7 @@ func test_bullet_blocked_by_unit() -> void:
 	# Снайп нацелен в дальнюю цель, но на линии стоит блокер → пуля попадает в блокера
 	var s := _fresh()
 	s.board.obstacles = {}                       # чистая линия
-	_place(s, 0, Vector2i(0, 4)).mana = 2        # A hunter
+	_place(s, 0, Vector2i(0, 4)).mana = Consts.SNIPE_MANA       # A hunter
 	_place(s, 1, Vector2i(0, 0))                 # увести своих
 	_place(s, 2, Vector2i(6, 6))
 	var blocker := _place(s, 4, Vector2i(2, 4), 12)   # B fairy на пути
@@ -360,7 +381,7 @@ func test_relative_move_after_knockback() -> void:
 	# Фею отбрасывают Дробью до её хода → её ход применяется от НОВОЙ клетки (относительно)
 	var s := _fresh()
 	s.board.obstacles = {}
-	_place(s, 0, Vector2i(0, 3)).mana = 3            # A hunter (Дробь)
+	_place(s, 0, Vector2i(0, 3)).mana = Consts.SHOTGUN_MANA           # A hunter (Дробь)
 	var fairy := _place(s, 4, Vector2i(1, 4), 12)    # B fairy на диагонали
 	# развести остальных
 	_place(s, 1, Vector2i(0, 0)); _place(s, 2, Vector2i(6, 6))
@@ -416,7 +437,7 @@ func test_shield_gates_trap() -> void:
 	Resolver.new().resolve(s, _slots(), ob, Consts.Player.A)
 	_check(crystal.cell == Vector2i(2, 4), "кристалл дошёл до капкана")
 	_check(crystal.hp == 10, "щит погасил урон капкана [%d]" % crystal.hp)
-	_check(not crystal.immobilize_pending, "щит погасил и обездвиживание капкана")
+	_check(not crystal.immobilized, "щит погасил и обездвиживание капкана")
 	_check(not crystal.shield_armed, "щит израсходован капканом")
 
 
@@ -424,7 +445,7 @@ func test_shotgun_area_2x2() -> void:
 	# Дробь вверх-вправо из (2,3): квадрат (3,2),(3,3),(2,2). Клетка снизу (2,4) НЕ задета.
 	var s := _fresh()
 	s.board.obstacles = {}
-	_place(s, 0, Vector2i(2, 3)).mana = 3          # A hunter (стрелок)
+	_place(s, 0, Vector2i(2, 3)).mana = Consts.SHOTGUN_MANA         # A hunter (стрелок)
 	var d1 := _place(s, 1, Vector2i(3, 2), 20)     # диагональ (A fairy)
 	var d2 := _place(s, 3, Vector2i(3, 3), 20)     # право (B hunter)
 	var d3 := _place(s, 4, Vector2i(2, 2), 20)     # верх (B fairy)
@@ -443,7 +464,7 @@ func test_shotgun_fixed_direction() -> void:
 	# нон-таргет: бьёт по offset от текущей позиции, а не по абсолютной target
 	var s := _fresh()
 	s.board.obstacles = {}
-	_place(s, 0, Vector2i(2, 3)).mana = 3
+	_place(s, 0, Vector2i(2, 3)).mana = Consts.SHOTGUN_MANA
 	var e := _place(s, 3, Vector2i(3, 2), 20)   # клетка квадранта для offset (1,-1)
 	var oa := _slots()
 	oa[0] = Order.make(0, Consts.Action.ABILITY3, Vector2i(5, 5), Vector2i(1, -1), true)  # target «мимо», offset фикс
@@ -454,7 +475,7 @@ func test_shotgun_fixed_direction() -> void:
 func test_snipe_relative() -> void:
 	# снайп нон-таргет: пуля летит по offset от текущей клетки стрелка
 	var s := _fresh()
-	_place(s, 0, Vector2i(2, 3)).mana = 2
+	_place(s, 0, Vector2i(2, 3)).mana = Consts.SNIPE_MANA
 	var e := _place(s, 4, Vector2i(2, 1), 20)   # 2 клетки вверх (offset (0,-2))
 	var oa := _slots()
 	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(9, 9), Vector2i(0, -2), true)  # target мимо

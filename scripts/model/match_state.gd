@@ -96,8 +96,7 @@ func begin_round() -> Array:
 	for u in units:
 		u.shield_armed = false
 		u.reflexes_armed = false
-		u.immobilized = u.immobilize_pending
-		u.immobilize_pending = false
+		u.immobilized = false   # капкан замораживает лишь до конца своего раунда — новый раунд свободен
 		if u.alive and round_num > 1:
 			u.mana += 1
 	# Респ мёртвых
@@ -137,6 +136,11 @@ func _try_respawn(u: Unit, events: Array) -> void:
 	u.dead_timer = 0
 	events.append(_ev(Consts.EventType.RESPAWN,
 		"%s воскрешается на (%d,%d)" % [u.full_name(), cell.x, cell.y]))
+
+
+# Публичный расчёт клетки воскрешения (нужен резолверу, чтобы поставить туда могилу-маркер).
+func respawn_cell_for(u: Unit) -> Vector2i:
+	return _respawn_cell(u)
 
 
 # Родная клетка → ближайшая свободная в родном ряду → ближайшая свободная на доске.
