@@ -18,20 +18,23 @@ var ambushes: Array = []   # [{owner_id:int, expire_round:int}]
 var winner: int = -1       # Consts.Player или -1
 
 
-func setup() -> void:
+# loadout_* : hero_type -> Array скиллов. Пустой словарь -> кит по умолчанию.
+# Киты обоих игроков обязаны быть одинаковыми на сервере и у клиентов (лок-степ).
+func setup(loadout_a: Dictionary = {}, loadout_b: Dictionary = {}) -> void:
 	board = Board.new()
 	units.clear()
 	# A внизу (y=6), B зеркально сверху (y=0), симметрия 180°.
-	_add_unit(0, Consts.Player.A, Consts.HeroType.HUNTER, Vector2i(1, 6))
-	_add_unit(1, Consts.Player.A, Consts.HeroType.FAIRY, Vector2i(3, 6))
-	_add_unit(2, Consts.Player.A, Consts.HeroType.CRYSTAL, Vector2i(5, 6))
-	_add_unit(3, Consts.Player.B, Consts.HeroType.HUNTER, Vector2i(5, 0))
-	_add_unit(4, Consts.Player.B, Consts.HeroType.FAIRY, Vector2i(3, 0))
-	_add_unit(5, Consts.Player.B, Consts.HeroType.CRYSTAL, Vector2i(1, 0))
+	_add_unit(0, Consts.Player.A, Consts.HeroType.HUNTER, Vector2i(1, 6), loadout_a)
+	_add_unit(1, Consts.Player.A, Consts.HeroType.FAIRY, Vector2i(3, 6), loadout_a)
+	_add_unit(2, Consts.Player.A, Consts.HeroType.CRYSTAL, Vector2i(5, 6), loadout_a)
+	_add_unit(3, Consts.Player.B, Consts.HeroType.HUNTER, Vector2i(5, 0), loadout_b)
+	_add_unit(4, Consts.Player.B, Consts.HeroType.FAIRY, Vector2i(3, 0), loadout_b)
+	_add_unit(5, Consts.Player.B, Consts.HeroType.CRYSTAL, Vector2i(1, 0), loadout_b)
 
 
-func _add_unit(id: int, owner: int, hero_type: int, cell: Vector2i) -> void:
-	units.append(Unit.new(id, owner, hero_type, cell))
+func _add_unit(id: int, owner: int, hero_type: int, cell: Vector2i, lo: Dictionary = {}) -> void:
+	var sk: Array = lo.get(hero_type, [])
+	units.append(Unit.new(id, owner, hero_type, cell, sk))
 
 
 func get_unit(id: int) -> Unit:
@@ -92,6 +95,7 @@ func begin_round() -> Array:
 	var events: Array = []
 	for u in units:
 		u.shield_armed = false
+		u.reflexes_armed = false
 		u.immobilized = u.immobilize_pending
 		u.immobilize_pending = false
 		if u.alive and round_num > 1:

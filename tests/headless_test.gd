@@ -39,6 +39,13 @@ func _initialize() -> void:
 	test_validator_target_geometry()
 	test_validator_mana_gate_and_double_cast()
 	test_validator_rejects_foreign_and_dead()
+	test_onslaught_pushes_and_advances()
+	test_onslaught_into_wall_collides_and_blocks_advance()
+	test_crystal_shot_hits_both_diagonals()
+	test_reflexes_dodges_and_gains_mana()
+	test_reflexes_blocked_when_cornered()
+	test_skill_slot_follows_loadout()
+	test_loadout_sanitize()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -635,3 +642,125 @@ func _has_type(events: Array, t: int) -> bool:
 		if e.type == t:
 			return true
 	return false
+
+
+# ---------------------------------------------------------------- новые скиллы Кристалкайнда
+
+# Ставит герою кит, в котором нужный скилл стоит в ABILITY1, и выдаёт ману под него.
+func _arm(s: MatchState, id: int, cell: Vector2i, skill: int) -> Unit:
+	var u := _place(s, id, cell)
+	u.skills = [skill, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	u.mana = HeroDefs.skill_def(skill).mana
+	return u
+
+
+func test_onslaught_pushes_and_advances() -> void:
+	# A crystal (3,4) бьёт врага на (3,3): урон, отброс на (3,2), продвижение на (3,3)
+	var s := _fresh()
+	var c := _arm(s, 2, Vector2i(3, 4), Consts.Skill.ONSLAUGHT)
+	var v := _place(s, 3, Vector2i(3, 3))            # B hunter
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	var expect := Consts.HUNTER_HP - Consts.ONSLAUGHT_DMG
+	_check(v.hp == expect, "натиск: урон %d [%d]" % [expect, v.hp])
+	_check(v.cell == Vector2i(3, 2), "натиск: жертва отброшена на (3,2) [%s]" % v.cell)
+	_check(c.cell == Vector2i(3, 3), "натиск: атакующий занял клетку жертвы [%s]" % c.cell)
+
+
+func test_onslaught_into_wall_collides_and_blocks_advance() -> void:
+	# Жертва на (3,2), за ней стена (3,1): отброс невозможен → столкновение, продвижения нет
+	var s := _fresh()
+	var c := _arm(s, 2, Vector2i(3, 3), Consts.Skill.ONSLAUGHT)
+	var v := _place(s, 3, Vector2i(3, 2))
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	var expect := Consts.HUNTER_HP - Consts.ONSLAUGHT_DMG - Consts.COLLISION_DMG
+	_check(v.hp == expect, "натиск в стену: урон + столкновение %d [%d]" % [expect, v.hp])
+	_check(v.cell == Vector2i(3, 2), "натиск в стену: жертва не сдвинулась")
+	_check(c.cell == Vector2i(3, 3), "натиск в стену: продвижения нет — клетка занята")
+
+
+func test_crystal_shot_hits_both_diagonals() -> void:
+	# Из (3,3) лучи по 4 диагоналям; бьёт и врага, и союзника (как Вспышка)
+	var s := _fresh()
+	_arm(s, 2, Vector2i(3, 3), Consts.Skill.CRYSTAL_SHOT)   # A crystal
+	var foe := _place(s, 3, Vector2i(4, 4))                 # B hunter — диагональ (+1,+1)
+	var ally := _place(s, 1, Vector2i(2, 2))                # A fairy — диагональ (-1,-1)
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1)           # без цели
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(foe.hp == Consts.HUNTER_HP - Consts.CRYSTAL_SHOT_DMG,
+		"отстрел: враг на диагонали получил урон [%d]" % foe.hp)
+	_check(ally.hp == Consts.FAIRY_HP - Consts.CRYSTAL_SHOT_DMG,
+		"отстрел: союзник на диагонали тоже получил урон [%d]" % ally.hp)
+
+
+func test_reflexes_dodges_and_gains_mana() -> void:
+	# B взводит рефлексы в слоте 1; в слоте 2 сосед бьёт в его клетку → отступ + мана + промах
+	var s := _fresh()
+	var a := _place(s, 2, Vector2i(3, 4))                     # A crystal — атакующий
+	var b := _arm(s, 5, Vector2i(3, 3), Consts.Skill.REFLEXES)  # B crystal
+	var oa := _slots()
+	oa[1] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 3))
+	var ob := _slots()
+	ob[0] = Order.make(5, Consts.Action.ABILITY1)             # стойка, без цели
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(b.cell == Vector2i(3, 2), "рефлексы: отступил на (3,2) [%s]" % b.cell)
+	_check(b.hp == Consts.CRYSTAL_HP, "рефлексы: удар прошёл мимо, HP цел [%d]" % b.hp)
+	_check(b.mana == Consts.REFLEXES_MANA_GAIN, "рефлексы: +%d маны [%d]" % [Consts.REFLEXES_MANA_GAIN, b.mana])
+	_check(a.cell == Vector2i(3, 4), "рефлексы: атакующий остался на месте")
+
+
+func test_reflexes_blocked_when_cornered() -> void:
+	# Отступать некуда (за спиной юнит) → стойка не тратится, удар проходит
+	var s := _fresh()
+	_place(s, 2, Vector2i(3, 4))                              # A crystal — атакующий
+	var b := _arm(s, 5, Vector2i(3, 3), Consts.Skill.REFLEXES)
+	_place(s, 1, Vector2i(3, 2))                              # A fairy перекрывает отступ
+	var oa := _slots()
+	oa[1] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 3))
+	var ob := _slots()
+	ob[0] = Order.make(5, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	var expect := Consts.CRYSTAL_HP - Consts.CRYSTAL_ATK_DMG
+	_check(b.cell == Vector2i(3, 3), "рефлексы в углу: юнит не сдвинулся")
+	_check(b.hp == expect, "рефлексы в углу: удар прошёл, HP %d [%d]" % [expect, b.hp])
+	_check(b.reflexes_armed, "рефлексы в углу: стойка не израсходована")
+
+
+# ---------------------------------------------------------------- кит / коллекция
+
+func test_skill_slot_follows_loadout() -> void:
+	# ABILITY1 диспетчеризуется по КИТУ, а не по «первому скиллу героя»:
+	# ставим Рывок в первый слот и ждём рывка, а не Прыжка.
+	var s := _fresh()
+	var c := _place(s, 2, Vector2i(3, 4))
+	c.skills = [Consts.Skill.DASH, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	c.mana = Consts.DASH_MANA
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(c.cell == Vector2i(3, 2), "кит: в ABILITY1 сработал Рывок, а не Прыжок [%s]" % c.cell)
+
+
+func test_loadout_sanitize() -> void:
+	var def := HeroDefs.default_skills(Consts.HeroType.CRYSTAL)
+	_check(Loadout.sanitize_hero(Consts.HeroType.CRYSTAL,
+			[Consts.Skill.ONSLAUGHT, Consts.Skill.REFLEXES, Consts.Skill.DASH]).size() == 3,
+		"кит: валидная тройка принята")
+	_check(Loadout.sanitize_hero(Consts.HeroType.CRYSTAL,
+			[Consts.Skill.JUMP, Consts.Skill.JUMP, Consts.Skill.DASH]) == def,
+		"кит: дубликат скилла → дефолт")
+	_check(Loadout.sanitize_hero(Consts.HeroType.CRYSTAL,
+			[Consts.Skill.TRAP, Consts.Skill.JUMP, Consts.Skill.DASH]) == def,
+		"кит: чужой скилл героя → дефолт")
+	_check(Loadout.sanitize_hero(Consts.HeroType.CRYSTAL, [Consts.Skill.JUMP]) == def,
+		"кит: неверное число скиллов → дефолт")
+	_check(Loadout.sanitize_hero(Consts.HeroType.CRYSTAL, "мусор") == def,
+		"кит: не-массив → дефолт")
+	var d := Loadout.dict_from_net(["мусор", 5, null])
+	_check(d[Consts.HeroType.HUNTER] == HeroDefs.default_skills(Consts.HeroType.HUNTER),
+		"кит по сети: мусор → дефолт Охотника")
+	_check(d[Consts.HeroType.CRYSTAL] == def, "кит по сети: мусор → дефолт Кристалкайнда")

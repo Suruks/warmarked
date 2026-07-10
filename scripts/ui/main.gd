@@ -35,6 +35,7 @@ func _ready() -> void:
 	if args.has("server") or args.has("--server"):
 		Net.start_server(Net.DEFAULT_PORT)
 		return
+	Loadout.load_from_disk()
 	_build_layout()
 	_connect_net()
 	if args.has("autoclient") or args.has("--autoclient"):
@@ -170,7 +171,20 @@ func _show_menu() -> void:
 	b_online.pressed.connect(func(): _start_online(host.text.strip_edges()))
 	box.add_child(b_online)
 
+	var b_coll := Button.new()
+	b_coll.text = "Коллекция"
+	b_coll.custom_minimum_size = Vector2(0, 52)
+	b_coll.add_theme_font_size_override("font_size", 20)
+	b_coll.pressed.connect(_show_collection)
+	box.add_child(b_coll)
+
 	_set_panel(box)
+
+
+func _show_collection() -> void:
+	var cp := CollectionPanel.new()
+	cp.closed.connect(_show_menu)
+	_set_panel(cp)
 
 
 # ============================================================ локальный hotseat
@@ -178,7 +192,8 @@ func _show_menu() -> void:
 func _start_local() -> void:
 	online = false
 	state = MatchState.new()
-	state.setup()
+	var lo := Loadout.all()   # hotseat: оба игрока за одним устройством, киты зеркальны
+	state.setup(lo, lo)
 	board_view.setup(state.board)
 	_local_new_round()
 
@@ -269,10 +284,10 @@ func _start_online(host: String) -> void:
 	Net.start_client(host)
 
 
-func _on_matched(index: int, a_first_on_odd: bool) -> void:
+func _on_matched(index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array) -> void:
 	my_index = index
 	state = MatchState.new()
-	state.setup()
+	state.setup(Loadout.dict_from_net(loadout_a), Loadout.dict_from_net(loadout_b))
 	state.a_first_on_odd = a_first_on_odd
 	board_view.setup(state.board)
 	_set_perspective(my_index)   # свой старт снизу, свои — синие (на весь матч)

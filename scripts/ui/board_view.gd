@@ -274,9 +274,9 @@ func _draw() -> void:
 	for h in highlights:
 		draw_rect(_cell_rect(h), COL_HL)
 	for t in snap.get("traps", []):
-		_draw_hazard(t.cell, Icons.skill(Consts.HeroType.HUNTER, Consts.Action.ABILITY1), t.owner)
+		_draw_hazard(t.cell, Icons.for_skill(Consts.Skill.TRAP), t.owner)
 	for a in snap.get("ambushes", []):
-		_draw_hazard(a.cell, Icons.skill(Consts.HeroType.CRYSTAL, Consts.Action.ABILITY2), a.owner)
+		_draw_hazard(a.cell, Icons.for_skill(Consts.Skill.AMBUSH), a.owner)
 	for g in ghosts:
 		_draw_ghost(g)
 	for u in snap.get("units", []):
@@ -382,7 +382,7 @@ func _draw_markers() -> void:
 		var base_y: int = scr.y * CELL + CELL - sz - 3
 		for i in list.size():
 			var m: Dictionary = list[i]
-			var tex: Texture2D = Icons.skill(m.hero_type, m.action)
+			var tex: Texture2D = Icons.action(m.hero_type, m.action, m.get("skills", []))
 			var col := _owner_color(m.get("owner", Consts.Player.A))
 			var x: int = base_x + (i % 2) * (sz + 2)
 			var y: int = base_y - int(i / 2) * (sz + 2)

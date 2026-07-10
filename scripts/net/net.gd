@@ -8,7 +8,7 @@ extends Node
 signal connected_ok
 signal connect_failed
 signal server_gone
-signal matched(your_index: int, a_first_on_odd: bool)
+signal matched(your_index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
 signal opponent_gone
@@ -23,6 +23,7 @@ var _queue: Array = []                 # peer_id ожидающих
 var _matches: Dictionary = {}          # match_id -> {session, peers:[p0,p1]}
 var _peer_match: Dictionary = {}       # peer_id -> match_id
 var _peer_index: Dictionary = {}       # peer_id -> 0/1
+var _peer_loadout: Dictionary = {}     # peer_id -> сетевой кит (санированный)
 var _next_match_id := 1
 
 
@@ -76,7 +77,7 @@ func disconnect_net() -> void:
 
 func _on_connected() -> void:
 	connected_ok.emit()
-	rpc_id(1, "req_join_queue")
+	rpc_id(1, "req_join_queue", Loadout.to_net())
 
 
 func _on_connect_failed() -> void:
@@ -108,6 +109,7 @@ func _on_peer_connected(id: int) -> void:
 func _on_peer_disconnected(id: int) -> void:
 	print("[server] peer %d отключился" % id)
 	_queue.erase(id)
+	_peer_loadout.erase(id)
 	if _peer_match.has(id):
 		var mid: int = _peer_match[id]
 		var m: Dictionary = _matches.get(mid, {})
@@ -120,12 +122,14 @@ func _on_peer_disconnected(id: int) -> void:
 # ============================================================ RPC: клиент → сервер
 
 @rpc("any_peer", "call_remote", "reliable")
-func req_join_queue() -> void:
+func req_join_queue(loadout: Variant = []) -> void:
 	if not is_server:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if _peer_match.has(sender) or _queue.has(sender):
 		return
+	# Клиенту не доверяем: чужие/повторные скиллы -> кит по умолчанию, иначе лок-степ разъедется
+	_peer_loadout[sender] = Loadout.sanitize_net(loadout)
 	_queue.append(sender)
 	print("[server] peer %d в очереди (всего %d)" % [sender, _queue.size()])
 	_try_matchmake()
@@ -192,13 +196,16 @@ func _create_match(p0: int, p1: int) -> void:
 	var afo := (randi() % 2 == 0)
 	var mid := _next_match_id
 	_next_match_id += 1
-	_matches[mid] = {"session": MatchSession.new(afo), "peers": [p0, p1]}
+	# Оба кита едут обоим клиентам: детерминированная копия матча должна совпасть с серверной
+	var lo_a: Array = _peer_loadout.get(p0, Loadout.defaults_net())
+	var lo_b: Array = _peer_loadout.get(p1, Loadout.defaults_net())
+	_matches[mid] = {"session": MatchSession.new(afo, lo_a, lo_b), "peers": [p0, p1]}
 	_peer_match[p0] = mid
 	_peer_match[p1] = mid
 	_peer_index[p0] = 0
 	_peer_index[p1] = 1
-	rpc_id(p0, "match_found_rpc", 0, afo)
-	rpc_id(p1, "match_found_rpc", 1, afo)
+	rpc_id(p0, "match_found_rpc", 0, afo, lo_a, lo_b)
+	rpc_id(p1, "match_found_rpc", 1, afo, lo_a, lo_b)
 	print("[server] матч %d: peer %d = A, peer %d = B (a_first_on_odd=%s)" % [mid, p0, p1, afo])
 
 
@@ -207,15 +214,16 @@ func _end_match(mid: int) -> void:
 	for p in m.get("peers", []):
 		_peer_match.erase(p)
 		_peer_index.erase(p)
+		_peer_loadout.erase(p)
 	_matches.erase(mid)
 
 
 # ============================================================ RPC: сервер → клиент
 
 @rpc("authority", "call_remote", "reliable")
-func match_found_rpc(your_index: int, a_first_on_odd: bool) -> void:
+func match_found_rpc(your_index: int, a_first_on_odd: bool, loadout_a: Variant = [], loadout_b: Variant = []) -> void:
 	my_index = your_index
-	matched.emit(your_index, a_first_on_odd)
+	matched.emit(your_index, a_first_on_odd, Loadout.sanitize_net(loadout_a), Loadout.sanitize_net(loadout_b))
 
 
 @rpc("authority", "call_remote", "reliable")

@@ -24,13 +24,20 @@ var immobilize_pending: bool = false
 # Щит Феи (Отмена). Взводится во время разрешения, гасит следующий эффект. Сбрасывается в начале раунда.
 var shield_armed: bool = false
 
+# Рефлексы Кристалкайнда. Взводится во время разрешения, срабатывает один раз. Сбрасывается в начале раунда.
+var reflexes_armed: bool = false
 
-func _init(p_id: int, p_owner: int, p_hero_type: int, p_cell: Vector2i) -> void:
+# Кит: ровно SKILLS_PER_HERO id из Consts.Skill, в порядке слотов ABILITY1..3
+var skills: Array = []
+
+
+func _init(p_id: int, p_owner: int, p_hero_type: int, p_cell: Vector2i, p_skills: Array = []) -> void:
 	id = p_id
 	owner = p_owner
 	hero_type = p_hero_type
 	cell = p_cell
 	home_cell = p_cell
+	skills = Loadout.sanitize_hero(p_hero_type, p_skills)
 	match hero_type:
 		Consts.HeroType.HUNTER: max_hp = Consts.HUNTER_HP
 		Consts.HeroType.FAIRY: max_hp = Consts.FAIRY_HP
@@ -60,4 +67,5 @@ func snapshot() -> Dictionary:
 		"dead_timer": dead_timer,
 		"immobilized": immobilized,
 		"shield": shield_armed,
+		"reflex": reflexes_armed,
 	}

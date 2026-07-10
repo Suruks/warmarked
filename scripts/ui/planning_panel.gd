@@ -178,10 +178,10 @@ func _rebuild_skills() -> void:
 	# Ход отдельной кнопкой не выводим — он активируется кликом по не ходившему юниту
 	var actions := [Consts.Action.ATTACK, Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3]
 	for act in actions:
-		var ad := HeroDefs.for_action(u.hero_type, act)
+		var ad := HeroDefs.for_action(u.hero_type, act, u.skills)
 		var sb := SkillButton.new()
-		sb.setup(Icons.skill(u.hero_type, act), ad.mana, not (is_own and _skill_usable(u, act)))
-		sb.hovered.connect(_show_desc.bind(u.hero_type, act))
+		sb.setup(Icons.action(u.hero_type, act, u.skills), ad.mana, not (is_own and _skill_usable(u, act)))
+		sb.hovered.connect(_show_desc.bind(u.hero_type, act, u.skills))
 		sb.pressed.connect(_arm.bind(act))
 		_skills_row.add_child(sb)
 		_skill_btns.append(sb)
@@ -193,8 +193,8 @@ func _rebuild_skills() -> void:
 	_skills_row.add_child(nb)
 
 
-func _show_desc(hero_type: int, action: int) -> void:
-	var ad := HeroDefs.for_action(hero_type, action)
+func _show_desc(hero_type: int, action: int, skills: Array = []) -> void:
+	var ad := HeroDefs.for_action(hero_type, action, skills)
 	var lines: Array = ["[b]%s[/b]" % ad.name]
 	if ad.mana > 0:
 		lines.append("Мана: %d" % ad.mana)
@@ -242,7 +242,7 @@ func _arm(action: int) -> void:
 	var u := state.get_unit(_view_id)
 	if u.owner != player or not u.alive or not _skill_usable(u, action):
 		return
-	_show_desc(u.hero_type, action)
+	_show_desc(u.hero_type, action, u.skills)
 	if _needs_target(u, action):
 		_pending_hero = _view_id
 		_pending_action = action
@@ -348,7 +348,7 @@ func _update_slots() -> void:
 			chip.add_theme_font_size_override("font_size", 20)
 		elif slot_hero[i] >= 0 and slot_action[i] != Consts.Action.EMPTY:
 			var u := state.get_unit(slot_hero[i])
-			var tex := Icons.skill(u.hero_type, slot_action[i])
+			var tex := Icons.action(u.hero_type, slot_action[i], u.skills)
 			if tex != null:
 				chip.icon = tex
 				chip.add_theme_font_size_override("font_size", 20)
@@ -401,7 +401,8 @@ func _update_markers() -> void:
 			cell = slot_target[i]
 		else:
 			cell = _origin_for(slot_hero[i], i)   # скилл без цели — метка на кастере
-		ms.append({"cell": cell, "hero_type": u.hero_type, "action": slot_action[i], "owner": player})
+		ms.append({"cell": cell, "hero_type": u.hero_type, "action": slot_action[i],
+				"owner": player, "skills": u.skills})
 	board_view.set_markers(ms)
 
 
@@ -415,7 +416,7 @@ func _skill_usable(u: Unit, action: int) -> bool:
 		return false
 	if action == Consts.Action.ATTACK:
 		return true
-	var ad := HeroDefs.for_action(u.hero_type, action)
+	var ad := HeroDefs.for_action(u.hero_type, action, u.skills)
 	if ad.slot_gate.size() > 0 and not (_active in ad.slot_gate):
 		return false
 	return u.mana - _reserved_for(u.id, _active) >= ad.mana
@@ -438,14 +439,14 @@ func _reserved_for(hero_id: int, exclude_slot: int) -> int:
 		if i == exclude_slot or slot_hero[i] != hero_id:
 			continue
 		var u := state.get_unit(hero_id)
-		r += HeroDefs.for_action(u.hero_type, slot_action[i]).mana
+		r += HeroDefs.for_action(u.hero_type, slot_action[i], u.skills).mana
 	return r
 
 
 func _needs_target(unit: Unit, action: int) -> bool:
 	if unit == null or action == Consts.Action.EMPTY:
 		return false
-	return HeroDefs.for_action(unit.hero_type, action).target != HeroDefs.Target.NONE
+	return HeroDefs.for_action(unit.hero_type, action, unit.skills).target != HeroDefs.Target.NONE
 
 
 func _planned_final(hero_id: int) -> Vector2i:
@@ -474,24 +475,29 @@ func _update_ghosts() -> void:
 	board_view.set_ghosts(gs)
 
 
+# Предсказанная позиция героя после слотов [0, upto_slot). Учитывает скиллы, которые
+# двигают самого героя — по id скилла, а не по индексу слота (кит настраивается в «Коллекции»).
 func _origin_for(hero_id: int, upto_slot: int) -> Vector2i:
-	var pos: Vector2i = state.get_unit(hero_id).cell
+	var u := state.get_unit(hero_id)
+	var pos: Vector2i = u.cell
 	for j in upto_slot:
 		if slot_hero[j] != hero_id:
 			continue
-		match slot_action[j]:
-			Consts.Action.MOVE:
-				if slot_path[j].size() > 0:
-					pos = slot_path[j][slot_path[j].size() - 1]
-			Consts.Action.ABILITY1:   # Кристалкайнд: Прыжок — приземление ЗА перепрыгнутым
-				var uj := state.get_unit(hero_id)
-				if uj.hero_type == Consts.HeroType.CRYSTAL and slot_target[j].x >= 0:
-					var dl: Vector2i = slot_target[j] - pos
-					pos = slot_target[j] + Vector2i(signi(dl.x), signi(dl.y))
-			Consts.Action.ABILITY3:   # Кристалкайнд: Рывок — в целевую клетку
-				var ud := state.get_unit(hero_id)
-				if ud.hero_type == Consts.HeroType.CRYSTAL and slot_target[j].x >= 0:
-					pos = slot_target[j]
+		var act: int = slot_action[j]
+		if act == Consts.Action.MOVE:
+			if slot_path[j].size() > 0:
+				pos = slot_path[j][slot_path[j].size() - 1]
+			continue
+		if slot_target[j].x < 0:
+			continue
+		match HeroDefs.skill_of_action(u.hero_type, act, u.skills):
+			Consts.Skill.JUMP:        # приземление ЗА перепрыгнутым
+				var dl: Vector2i = slot_target[j] - pos
+				pos = slot_target[j] + Vector2i(signi(dl.x), signi(dl.y))
+			Consts.Skill.DASH:        # в целевую клетку
+				pos = slot_target[j]
+			Consts.Skill.ONSLAUGHT:   # занимает клетку отброшенного врага
+				pos = slot_target[j]
 	return pos
 
 
@@ -508,11 +514,11 @@ func _on_done() -> void:
 		if slot_action[i] != Consts.Action.MOVE:
 			var key := "%d:%d" % [hid, slot_action[i]]
 			if seen.has(key):
-				var nm := HeroDefs.for_action(u.hero_type, slot_action[i]).name
+				var nm := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills).name
 				_err_lbl.text = "%s: «%s» нельзя применить дважды за раунд" % [u.full_name(), nm]
 				return
 			seen[key] = true
-		var ad := HeroDefs.for_action(u.hero_type, slot_action[i])
+		var ad := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills)
 		if ad.slot_gate.size() > 0 and not (i in ad.slot_gate):
 			_err_lbl.text = "%s: %s только в слотах %s" % [u.full_name(), ad.name, str(_gate_human(ad.slot_gate))]
 			return

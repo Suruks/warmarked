@@ -44,13 +44,13 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	var key := "%d:%d" % [o.hero_id, o.action]
 	if seen.has(key):
 		return false
-	var def := HeroDefs.for_action(u.hero_type, o.action)
+	var def := HeroDefs.for_action(u.hero_type, o.action, u.skills)
 	if def.slot_gate.size() > 0 and not (slot in def.slot_gate):
 		return false
 	var used: int = spent.get(o.hero_id, 0)
 	if used + def.mana > u.mana:
 		return false
-	if def.target != HeroDefs.Target.NONE and not _target_legal(u.hero_type, o.action, _offset(u, o)):
+	if def.target != HeroDefs.Target.NONE and not _target_legal(u, o.action, _offset(u, o)):
 		return false
 
 	seen[key] = true
@@ -74,34 +74,34 @@ static func _offset(u: Unit, o: Order) -> Vector2i:
 
 
 # Форма и дальность цели. Зеркалит Targeting._basic_attack_cells / _ability_cells.
-static func _target_legal(hero_type: int, action: int, off: Vector2i) -> bool:
-	match hero_type:
-		Consts.HeroType.HUNTER:
-			match action:
-				Consts.Action.ATTACK:      # Выстрел: прямая, 2-3
-					return _ray(off) >= 2 and _ray(off) <= 3
-				Consts.Action.ABILITY1:    # Капкан: радиус 2 (манхэттен)
-					return _man(off) >= 1 and _man(off) <= Consts.TRAP_RADIUS
-				Consts.Action.ABILITY2:    # Снайп: прямая, SNIPE_MIN..SNIPE_MAX
-					return _ray(off) >= Consts.SNIPE_MIN and _ray(off) <= Consts.SNIPE_MAX
-				Consts.Action.ABILITY3:    # Дробь: соседняя диагональ
-					return absi(off.x) == 1 and absi(off.y) == 1
-		Consts.HeroType.FAIRY:
-			match action:
-				Consts.Action.ATTACK:      # Удар: любой из 8 соседей
-					return _cheb(off) == 1
-				Consts.Action.ABILITY1:    # Отмена: себе или рядом (Chebyshev 1)
-					return _cheb(off) <= 1
-				Consts.Action.ABILITY2:    # Лечение: радиус 2 (манхэттен)
-					return _man(off) <= Consts.HEAL_RADIUS
-		Consts.HeroType.CRYSTAL:
-			match action:
-				Consts.Action.ATTACK:      # Удар: орто-сосед
-					return _man(off) == 1
-				Consts.Action.ABILITY1:    # Прыжок: через орто-соседа
-					return _man(off) == 1
-				Consts.Action.ABILITY3:    # Рывок: по прямой
-					return _ray(off) >= 1
+# Способности диспетчеризуются по id скилла из кита юнита, а не по индексу слота.
+static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
+	if action == Consts.Action.ATTACK:
+		match u.hero_type:
+			Consts.HeroType.HUNTER:    # Выстрел: прямая, 2-3
+				return _ray(off) >= 2 and _ray(off) <= 3
+			Consts.HeroType.FAIRY:     # Удар: любой из 8 соседей
+				return _cheb(off) == 1
+			Consts.HeroType.CRYSTAL:   # Удар: орто-сосед
+				return _man(off) == 1
+		return false
+	match HeroDefs.skill_of_action(u.hero_type, action, u.skills):
+		Consts.Skill.TRAP:        # радиус 2 (манхэттен)
+			return _man(off) >= 1 and _man(off) <= Consts.TRAP_RADIUS
+		Consts.Skill.SNIPE:       # прямая, SNIPE_MIN..SNIPE_MAX
+			return _ray(off) >= Consts.SNIPE_MIN and _ray(off) <= Consts.SNIPE_MAX
+		Consts.Skill.SHOTGUN:     # соседняя диагональ
+			return absi(off.x) == 1 and absi(off.y) == 1
+		Consts.Skill.CANCEL:      # себе или рядом (Chebyshev 1)
+			return _cheb(off) <= 1
+		Consts.Skill.HEAL:        # радиус 2 (манхэттен)
+			return _man(off) <= Consts.HEAL_RADIUS
+		Consts.Skill.JUMP:        # через орто-соседа
+			return _man(off) == 1
+		Consts.Skill.DASH:        # по прямой
+			return _ray(off) >= 1
+		Consts.Skill.ONSLAUGHT:   # орто-сосед
+			return _man(off) == 1
 	return false
 
 

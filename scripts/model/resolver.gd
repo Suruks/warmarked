@@ -183,6 +183,7 @@ func _eff_target(unit: Unit, order: Order) -> Vector2i:
 
 func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array) -> void:
 	var et := _eff_target(unit, order)
+	_check_reflexes(state, unit, et, events)   # цель могла увернуться — тогда бьём в пустоту
 	var dmg := 0
 	var victim: Unit
 	match unit.hero_type:
@@ -209,7 +210,8 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 
 func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events: Array) -> void:
 	var idx := order.action - Consts.Action.ABILITY1  # 0..2
-	var def := HeroDefs.ability(unit.hero_type, idx)
+	var skill: int = unit.skills[idx]
+	var def := HeroDefs.skill_def(skill)
 	if def.slot_gate.size() > 0 and not (slot in def.slot_gate):
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s: %s недоступна в этом слоте" % [unit.full_name(), def.name])
@@ -219,129 +221,210 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 			"%s: не хватает маны на %s" % [unit.full_name(), def.name])
 		return
 	unit.mana -= def.mana
+	var et := _eff_target(unit, order)
 	_push(events, state, Consts.EventType.ABILITY,
 		"%s использует %s" % [unit.full_name(), def.name],
-		{"actor": unit.id, "target_cell": _eff_target(unit, order)})
-	match unit.hero_type:
-		Consts.HeroType.HUNTER: _hunter_ability(state, unit, idx, order, events)
-		Consts.HeroType.FAIRY: _fairy_ability(state, unit, idx, order, events)
-		Consts.HeroType.CRYSTAL: _crystal_ability(state, unit, idx, order, events)
+		{"actor": unit.id, "target_cell": et})
+	# Нацеленный скилл соседа даёт жертве шанс на рефлексы — до того, как эффект применится
+	if def.target != HeroDefs.Target.NONE:
+		_check_reflexes(state, unit, et, events)
+	match skill:
+		Consts.Skill.TRAP: _sk_trap(state, unit, et, events)
+		Consts.Skill.SNIPE: _sk_snipe(state, unit, et, events)
+		Consts.Skill.SHOTGUN: _sk_shotgun(state, unit, et, events)
+		Consts.Skill.CANCEL: _sk_cancel(state, unit, et, events)
+		Consts.Skill.HEAL: _sk_heal(state, unit, et, events)
+		Consts.Skill.FLASH: _sk_flash(state, unit, events)
+		Consts.Skill.JUMP: _sk_jump(state, unit, et, events)
+		Consts.Skill.AMBUSH: _sk_ambush(state, unit, events)
+		Consts.Skill.DASH: _sk_dash(state, unit, et, events)
+		Consts.Skill.ONSLAUGHT: _sk_onslaught(state, unit, et, events)
+		Consts.Skill.CRYSTAL_SHOT: _sk_crystal_shot(state, unit, events)
+		Consts.Skill.REFLEXES: _sk_reflexes(state, unit, events)
 
 
-func _hunter_ability(state: MatchState, unit: Unit, idx: int, order: Order, events: Array) -> void:
-	var et := _eff_target(unit, order)
-	match idx:
-		0:  # Капкан — не ставится в занятую юнитом или могилой клетку
-			if state.unit_at(et) != null or state.grave_at(et):
-				_push(events, state, Consts.EventType.FIZZLE,
-					"Капкан не поставлен: клетка (%d,%d) занята" % [et.x, et.y])
-				return
-			state.traps.append({
-				"cell": et,
-				"owner_player": unit.owner,
-				"owner_id": unit.id,
-				"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
-			})
-			_push(events, state, Consts.EventType.TRAP_PLACED,
-				"Капкан установлен на (%d,%d)" % [et.x, et.y])
-		1:  # Снайп (пуля бьёт первого на линии — заблокируется тем, кто встал на пути)
-			var v := _first_unit_on_line(state, unit.cell, et)
-			if v == null:
-				_push(events, state, Consts.EventType.FIZZLE, "Снайп в пустоту (%d,%d)" % [et.x, et.y])
-				return
-			_deal_damage(state, v, Consts.SNIPE_DMG, unit.owner, events, "снайп")
-		2:  # Дробь — квадрат 2x2 по диагонали (диагональ + две ортогональные к стрелку)
-			var dir := _dir_sign(et - unit.cell)
-			var cells := [
-				unit.cell + dir,                    # диагональная клетка
-				unit.cell + Vector2i(dir.x, 0),     # ортогональная по X
-				unit.cell + Vector2i(0, dir.y),     # ортогональная по Y
-			]
-			for c in cells:
-				var v := state.unit_at(c)
-				if v == null:
-					continue
-				_deal_damage(state, v, Consts.SHOTGUN_DMG, unit.owner, events, "дробь")
-				if v.alive:
-					_knockback(state, v, _dir_sign(v.cell - unit.cell), unit.owner, events)
+# Капкан — не ставится в занятую юнитом или могилой клетку
+func _sk_trap(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if state.unit_at(et) != null or state.grave_at(et):
+		_push(events, state, Consts.EventType.FIZZLE,
+			"Капкан не поставлен: клетка (%d,%d) занята" % [et.x, et.y])
+		return
+	state.traps.append({
+		"cell": et,
+		"owner_player": unit.owner,
+		"owner_id": unit.id,
+		"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
+	})
+	_push(events, state, Consts.EventType.TRAP_PLACED,
+		"Капкан установлен на (%d,%d)" % [et.x, et.y])
 
 
-func _fairy_ability(state: MatchState, unit: Unit, idx: int, order: Order, events: Array) -> void:
-	var et := _eff_target(unit, order)
-	match idx:
-		0:  # Отмена (щит себе или соседнему союзнику)
-			var target := state.unit_at(et)
-			if target == null or target.owner != unit.owner:
-				_push(events, state, Consts.EventType.FIZZLE,
-					"Отмена: нет союзника на (%d,%d)" % [et.x, et.y])
-				return
-			target.shield_armed = true
-			_push(events, state, Consts.EventType.SHIELD_ARMED,
-				"%s ставит щит на %s" % [unit.full_name(), target.full_name()])
-		1:  # Лечение
-			var ally := state.unit_at(et)
-			if ally == null or ally.owner != unit.owner:
-				_push(events, state, Consts.EventType.FIZZLE, "Лечение: нет союзника на (%d,%d)" % [et.x, et.y])
-				return
-			var before := ally.hp
-			ally.hp = min(ally.max_hp, ally.hp + Consts.HEAL_AMOUNT)
-			_push(events, state, Consts.EventType.HEAL,
-				"%s лечит %s на %d -> HP %d/%d" % [unit.full_name(), ally.full_name(), ally.hp - before, ally.hp, ally.max_hp],
-				{"victim": ally.id, "amount": ally.hp - before})   # может быть 0 при полном HP
-		2:  # Вспышка
-			for d in Consts.DIRS8:
-				var v := state.unit_at(unit.cell + d)
-				if v != null:
-					_deal_damage(state, v, Consts.FLASH_DMG, unit.owner, events, "вспышка")
+# Снайп — пуля бьёт первого на линии (заблокируется тем, кто встал на пути)
+func _sk_snipe(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := _first_unit_on_line(state, unit.cell, et)
+	if v == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Снайп в пустоту (%d,%d)" % [et.x, et.y])
+		return
+	_deal_damage(state, v, Consts.SNIPE_DMG, unit.owner, events, "снайп")
 
 
-func _crystal_ability(state: MatchState, unit: Unit, idx: int, order: Order, events: Array) -> void:
-	var et := _eff_target(unit, order)
-	match idx:
-		0:  # Прыжок
-			var dir := _dir_sign(et - unit.cell)
-			# только орто-соседняя клетка
-			if _manhattan(unit.cell, et) != 1:
-				_push(events, state, Consts.EventType.FIZZLE, "Прыжок: цель не соседняя")
-				return
-			var jumped := state.unit_at(et)
-			var land := et + dir
-			if jumped == null:
-				_push(events, state, Consts.EventType.FIZZLE, "Прыжок: некого перепрыгнуть")
-				return
-			if not state.board.is_passable(land) or state.unit_at(land) != null:
-				_push(events, state, Consts.EventType.FIZZLE, "Прыжок: негде приземлиться")
-				return
-			_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
-				"%s перепрыгивает на (%d,%d)" % [unit.full_name(), land.x, land.y])
-			if jumped.owner != unit.owner and jumped.alive:
-				_deal_damage(state, jumped, Consts.JUMP_DMG, unit.owner, events, "прыжок")
-		1:  # Засада
-			state.ambushes.append({
-				"owner_id": unit.id,
-				"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
-			})
-			_push(events, state, Consts.EventType.AMBUSH_ARMED, "%s встаёт в засаду" % unit.full_name())
-		2:  # Рывок
-			var dir := _dir_sign(et - unit.cell)
-			if dir.x != 0 and dir.y != 0:
-				_push(events, state, Consts.EventType.FIZZLE, "Рывок: только по прямой")
-				return
-			var steps := _manhattan(unit.cell, et)
-			var land := unit.cell
-			var c := unit.cell
-			for s in steps:
-				c += dir
-				if not state.board.is_passable(c):
-					break
-				var v := state.unit_at(c)
-				if v != null and v.id != unit.id:
-					_deal_damage(state, v, Consts.DASH_DMG, unit.owner, events, "рывок")
-				else:
-					land = c
-			if land != unit.cell:
-				_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
-					"%s прорывается на (%d,%d)" % [unit.full_name(), land.x, land.y])
+# Дробь — квадрат 2x2 по диагонали (диагональ + две ортогональные к стрелку)
+func _sk_shotgun(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var dir := _dir_sign(et - unit.cell)
+	var cells := [
+		unit.cell + dir,                    # диагональная клетка
+		unit.cell + Vector2i(dir.x, 0),     # ортогональная по X
+		unit.cell + Vector2i(0, dir.y),     # ортогональная по Y
+	]
+	for c in cells:
+		var v := state.unit_at(c)
+		if v == null:
+			continue
+		_deal_damage(state, v, Consts.SHOTGUN_DMG, unit.owner, events, "дробь")
+		if v.alive:
+			_knockback(state, v, _dir_sign(v.cell - unit.cell), unit.owner, events)
+
+
+# Отмена — щит себе или соседнему союзнику
+func _sk_cancel(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var target := state.unit_at(et)
+	if target == null or target.owner != unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE,
+			"Отмена: нет союзника на (%d,%d)" % [et.x, et.y])
+		return
+	target.shield_armed = true
+	_push(events, state, Consts.EventType.SHIELD_ARMED,
+		"%s ставит щит на %s" % [unit.full_name(), target.full_name()])
+
+
+func _sk_heal(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var ally := state.unit_at(et)
+	if ally == null or ally.owner != unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Лечение: нет союзника на (%d,%d)" % [et.x, et.y])
+		return
+	var before := ally.hp
+	ally.hp = min(ally.max_hp, ally.hp + Consts.HEAL_AMOUNT)
+	_push(events, state, Consts.EventType.HEAL,
+		"%s лечит %s на %d -> HP %d/%d" % [unit.full_name(), ally.full_name(), ally.hp - before, ally.hp, ally.max_hp],
+		{"victim": ally.id, "amount": ally.hp - before})   # может быть 0 при полном HP
+
+
+func _sk_flash(state: MatchState, unit: Unit, events: Array) -> void:
+	for d in Consts.DIRS8:
+		var v := state.unit_at(unit.cell + d)
+		if v != null:
+			_deal_damage(state, v, Consts.FLASH_DMG, unit.owner, events, "вспышка")
+
+
+func _sk_jump(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var dir := _dir_sign(et - unit.cell)
+	# только орто-соседняя клетка
+	if _manhattan(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Прыжок: цель не соседняя")
+		return
+	var jumped := state.unit_at(et)
+	var land := et + dir
+	if jumped == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Прыжок: некого перепрыгнуть")
+		return
+	if not state.board.is_passable(land) or state.unit_at(land) != null:
+		_push(events, state, Consts.EventType.FIZZLE, "Прыжок: негде приземлиться")
+		return
+	_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
+		"%s перепрыгивает на (%d,%d)" % [unit.full_name(), land.x, land.y])
+	if jumped.owner != unit.owner and jumped.alive:
+		_deal_damage(state, jumped, Consts.JUMP_DMG, unit.owner, events, "прыжок")
+
+
+func _sk_ambush(state: MatchState, unit: Unit, events: Array) -> void:
+	state.ambushes.append({
+		"owner_id": unit.id,
+		"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
+	})
+	_push(events, state, Consts.EventType.AMBUSH_ARMED, "%s встаёт в засаду" % unit.full_name())
+
+
+func _sk_dash(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var dir := _dir_sign(et - unit.cell)
+	if dir.x != 0 and dir.y != 0:
+		_push(events, state, Consts.EventType.FIZZLE, "Рывок: только по прямой")
+		return
+	var steps := _manhattan(unit.cell, et)
+	var land := unit.cell
+	var c := unit.cell
+	for s in steps:
+		c += dir
+		if not state.board.is_passable(c):
+			break
+		var v := state.unit_at(c)
+		if v != null and v.id != unit.id:
+			_deal_damage(state, v, Consts.DASH_DMG, unit.owner, events, "рывок")
+		else:
+			land = c
+	if land != unit.cell:
+		_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
+			"%s прорывается на (%d,%d)" % [unit.full_name(), land.x, land.y])
+
+
+# Натиск — урон соседу, отбрасывание, продвижение в освободившуюся клетку.
+# Клетка освобождается, если жертву отбросило ИЛИ она погибла (могила не мешает).
+func _sk_onslaught(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _manhattan(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Натиск: цель не соседняя")
+		return
+	var victim := state.unit_at(et)
+	if victim == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Натиск в пустоту (%d,%d)" % [et.x, et.y])
+		return
+	var dir := _dir_sign(et - unit.cell)
+	_deal_damage(state, victim, Consts.ONSLAUGHT_DMG, unit.owner, events, "натиск")
+	if victim.alive:
+		_knockback(state, victim, dir, unit.owner, events)
+	if state.unit_at(et) == null and state.board.is_passable(et):
+		_enter(state, unit, et, events, unit.owner, Consts.EventType.MOVE,
+			"%s продвигается на (%d,%d)" % [unit.full_name(), et.x, et.y])
+
+
+# Отстрел кристаллов — первый юнит на каждой из 4 диагоналей (по своим тоже)
+func _sk_crystal_shot(state: MatchState, unit: Unit, events: Array) -> void:
+	var hit := false
+	for d in Consts.DIRS_DIAG:
+		var v := _first_unit_on_ray(state, unit.cell, d)
+		if v == null:
+			continue
+		hit = true
+		_deal_damage(state, v, Consts.CRYSTAL_SHOT_DMG, unit.owner, events, "отстрел кристаллов")
+	if not hit:
+		_push(events, state, Consts.EventType.FIZZLE, "Отстрел кристаллов: на диагоналях пусто")
+
+
+func _sk_reflexes(state: MatchState, unit: Unit, events: Array) -> void:
+	unit.reflexes_armed = true
+	_push(events, state, Consts.EventType.REFLEX_ARMED,
+		"%s встаёт в стойку рефлексов" % unit.full_name())
+
+
+# Соседний враг целит в клетку юнита со взведёнными рефлексами: тот отступает на 1 и
+# получает ману, а эффект прилетает в опустевшую клетку (no-retarget — цель фиксирована).
+# Если отступать некуда, стойка не тратится и удар проходит: зажатого в угол не спасает.
+func _check_reflexes(state: MatchState, actor: Unit, cell: Vector2i, events: Array) -> void:
+	var v := state.unit_at(cell)
+	if v == null or v.owner == actor.owner or not v.reflexes_armed:
+		return
+	if _cheb(actor.cell, cell) != 1:
+		return
+	var dir := _dir_sign(v.cell - actor.cell)
+	var dest := v.cell + dir
+	if not state.board.is_passable(dest) or state.unit_at(dest) != null:
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s: рефлексы не сработали — отступать некуда" % v.full_name())
+		return
+	v.reflexes_armed = false
+	v.mana += Consts.REFLEXES_MANA_GAIN
+	_push(events, state, Consts.EventType.REFLEX_DODGE,
+		"Рефлексы! %s уходит из-под удара, +%d маны" % [v.full_name(), Consts.REFLEXES_MANA_GAIN])
+	_enter(state, v, dest, events, v.owner, Consts.EventType.MOVE,
+		"%s отступает на (%d,%d)" % [v.full_name(), dest.x, dest.y])
 
 
 # ---------------------------------------------------------------- утилиты
@@ -371,6 +454,17 @@ func _first_unit_on_line(state: MatchState, from: Vector2i, target: Vector2i) ->
 			return u
 		if cur == target:
 			return null
+		cur += step
+	return null
+
+
+# Первый живой юнит на луче из from в направлении step (стена/край гасят луч).
+func _first_unit_on_ray(state: MatchState, from: Vector2i, step: Vector2i) -> Unit:
+	var cur := from + step
+	while state.board.in_bounds(cur) and not state.board.is_obstacle(cur):
+		var u := state.unit_at(cur)
+		if u != null:
+			return u
 		cur += step
 	return null
 

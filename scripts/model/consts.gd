@@ -8,6 +8,18 @@ extends RefCounted
 enum Player { A, B }
 enum HeroType { HUNTER, FAIRY, CRYSTAL }
 
+# Глобальный каталог скиллов. Герой берёт в бой SKILLS_PER_HERO штук из своего пула
+# (HeroDefs.pool). Резолвер/таргетинг диспетчеризуются по этому id, а не по индексу слота,
+# поэтому набор скиллов можно менять, не трогая логику.
+enum Skill {
+	TRAP, SNIPE, SHOTGUN,                 # Охотник
+	CANCEL, HEAL, FLASH,                  # Фея
+	JUMP, AMBUSH, DASH,                   # Кристалкайнд — базовые
+	ONSLAUGHT, CRYSTAL_SHOT, REFLEXES,    # Кристалкайнд — расширение пула
+}
+
+const SKILLS_PER_HERO := 3
+
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
 enum Action { EMPTY, MOVE, ATTACK, ABILITY1, ABILITY2, ABILITY3, PASS }
@@ -18,6 +30,7 @@ enum EventType {
 	RESPAWN, RESPAWN_BLOCKED, TRAP_PLACED, TRAP_TRIGGER,
 	AMBUSH_ARMED, AMBUSH_TRIGGER, SHIELD_ARMED, SHIELD_ABSORB,
 	COLLISION, KNOCKBACK, IMMOBILIZE, FIZZLE, MANA, SCORE,
+	REFLEX_ARMED, REFLEX_DODGE,
 }
 
 # --- Поле ---
@@ -81,6 +94,18 @@ const AMBUSH_DMG := 5
 
 const DASH_MANA := 3
 const DASH_DMG := 4
+
+# Натиск: бьёт соседа, отбрасывает его и занимает освободившуюся клетку
+const ONSLAUGHT_MANA := 2
+const ONSLAUGHT_DMG := 3
+
+# Отстрел кристаллов: первый юнит на каждой из 4 диагоналей (по своим тоже)
+const CRYSTAL_SHOT_MANA := 2
+const CRYSTAL_SHOT_DMG := 3
+
+# Рефлексы: стойка; соседний враг целит в эту клетку -> отступить на 1 и получить ману
+const REFLEXES_MANA := 1
+const REFLEXES_MANA_GAIN := 1
 
 const CRYSTAL_PASSIVE_REDUCTION := 0   # пассивка снята (0 = без снижения урона)
 
