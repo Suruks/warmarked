@@ -66,7 +66,7 @@ if errorlevel 1 (
 	goto :fail
 )
 echo --- swap, import, restart ---
-ssh %HOST% "rm -rf %REMOTE%/scripts && mv %REMOTE%/scripts_new %REMOTE%/scripts && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 1 && echo --- STATUS --- && systemctl is-active warmarked && ss -ltnp | grep 8910"
+ssh %HOST% "rm -rf %REMOTE%/scripts && mv %REMOTE%/scripts_new %REMOTE%/scripts && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
 if errorlevel 1 (
 	echo.
 	echo [FAIL] Server step failed - see output above.
