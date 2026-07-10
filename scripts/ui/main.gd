@@ -40,9 +40,17 @@ func _ready() -> void:
 	_connect_net()
 	if args.has("autoclient") or args.has("--autoclient"):
 		_auto = true
-		_start_online(DEFAULT_HOST)
+		_start_online(_arg_value(args, ["autoclient", "--autoclient"], "127.0.0.1"))
 	else:
 		_show_menu()
+
+
+# Значение аргумента, идущего сразу за одним из ключей (для «-- autoclient <host>»).
+func _arg_value(args: Array, keys: Array, fallback: String) -> String:
+	for i in args.size():
+		if args[i] in keys and i + 1 < args.size():
+			return args[i + 1]
+	return fallback
 
 
 func _build_layout() -> void:
@@ -83,6 +91,16 @@ func _connect_net() -> void:
 	Net.round_revealed.connect(_on_round_revealed)
 	Net.opponent_progress.connect(_on_opponent_progress)
 	Net.opponent_gone.connect(func(): _status("Соперник вышел. Матч окончен."))
+	Net.version_mismatch.connect(_on_version_mismatch)
+
+
+func _on_version_mismatch(server_version: int, client_version: int) -> void:
+	Net.disconnect_net()
+	if _auto:
+		push_error("[autoclient] версия %d != сервер %d" % [client_version, server_version])
+		get_tree().quit(1)
+		return
+	_status("Версия игры не совпадает с сервером.\nСервер: v%d, у вас: v%d.\nОбновите страницу (Ctrl+Shift+R) или клиент." % [server_version, client_version])
 
 
 func _on_opponent_progress(filled: Array) -> void:

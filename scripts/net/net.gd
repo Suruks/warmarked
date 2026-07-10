@@ -9,6 +9,7 @@ signal connected_ok
 signal connect_failed
 signal server_gone
 signal matched(your_index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array)
+signal version_mismatch(server_version: int, client_version: int)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
 signal opponent_gone
@@ -77,7 +78,7 @@ func disconnect_net() -> void:
 
 func _on_connected() -> void:
 	connected_ok.emit()
-	rpc_id(1, "req_join_queue", Loadout.to_net())
+	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.to_net())
 
 
 func _on_connect_failed() -> void:
@@ -122,10 +123,16 @@ func _on_peer_disconnected(id: int) -> void:
 # ============================================================ RPC: клиент → сервер
 
 @rpc("any_peer", "call_remote", "reliable")
-func req_join_queue(loadout: Variant = []) -> void:
+func req_join_queue(version: Variant = 0, loadout: Variant = []) -> void:
 	if not is_server:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	# Версии обязаны совпадать: иначе лок-степ разойдётся незаметно. Отклоняем в очередь не ставя.
+	var cv: int = version if typeof(version) == TYPE_INT else -1
+	if cv != Consts.PROTOCOL_VERSION:
+		print("[server] peer %d отклонён: версия %s != %d" % [sender, str(version), Consts.PROTOCOL_VERSION])
+		rpc_id(sender, "notify_version_mismatch", Consts.PROTOCOL_VERSION)
+		return
 	if _peer_match.has(sender) or _queue.has(sender):
 		return
 	# Клиенту не доверяем: чужие/повторные скиллы -> кит по умолчанию, иначе лок-степ разъедется
@@ -239,3 +246,8 @@ func opp_progress_rpc(filled: Array) -> void:
 @rpc("authority", "call_remote", "reliable")
 func notify_opponent_gone() -> void:
 	opponent_gone.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func notify_version_mismatch(server_version: int) -> void:
+	version_mismatch.emit(server_version, Consts.PROTOCOL_VERSION)

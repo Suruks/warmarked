@@ -129,9 +129,11 @@ func _smoke_resolution_playback() -> void:
 	hunter.hp = 5
 	st.get_unit(5).cell = Vector2i(2, 3)  # B Кристалкайнд — цель удара
 
+	# слот лечения зависит от сортировки кита по мане — берём его из кита, а не хардкодим
+	var heal_action: int = Consts.Action.ABILITY1 + fairy.skills.find(Consts.Skill.HEAL)
 	var oa := Order.empty_slots()
 	oa[0] = Order.make(1, Consts.Action.ATTACK, Vector2i(2, 3), Vector2i(-1, 0), true)
-	oa[1] = Order.make(1, Consts.Action.ABILITY2, Vector2i(3, 4), Vector2i(0, 1), true)
+	oa[1] = Order.make(1, heal_action, Vector2i(3, 4), Vector2i(0, 1), true)
 	var events := Resolver.new().resolve(st, oa, Order.empty_slots(), Consts.Player.A)
 
 	var dmg: Array = events.filter(func(e): return e.type == Consts.EventType.DAMAGE)
