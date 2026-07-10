@@ -46,6 +46,7 @@ func _initialize() -> void:
 	test_reflexes_blocked_when_cornered()
 	test_skill_slot_follows_loadout()
 	test_loadout_sanitize()
+	test_immobilize_blocks_movement_skills()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -743,6 +744,29 @@ func test_skill_slot_follows_loadout() -> void:
 	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 2))
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
 	_check(c.cell == Vector2i(3, 2), "кит: в ABILITY1 сработал Рывок, а не Прыжок [%s]" % c.cell)
+
+
+func test_immobilize_blocks_movement_skills() -> void:
+	# Обездвиженный Кристалл не может двигаться скиллами (Прыжок/Натиск) — иначе капкан бесполезен
+	var s := _fresh()
+	var c := _place(s, 2, Vector2i(3, 4))
+	c.skills = [Consts.Skill.JUMP, Consts.Skill.ONSLAUGHT, Consts.Skill.AMBUSH]
+	c.immobilized = true
+	c.mana = 5
+	var foe := _place(s, 3, Vector2i(3, 3))            # враг вплотную сверху
+	# Прыжок через врага (ABILITY1) — должен физзлить, Кристалл не двигается
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(c.cell == Vector2i(3, 4), "обездвижен: Прыжок не сдвинул Кристалл [%s]" % c.cell)
+	_check(c.mana == 5, "обездвижен: физзл Прыжка не списал ману [%d]" % c.mana)
+	_check(foe.hp == Consts.HUNTER_HP, "обездвижен: Прыжок не нанёс урона")
+	# Натиск (ABILITY2) — тоже физзл (двигает кастера)
+	var oa2 := _slots()
+	oa2[0] = Order.make(2, Consts.Action.ABILITY2, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa2, _slots(), Consts.Player.A)
+	_check(c.cell == Vector2i(3, 4) and foe.hp == Consts.HUNTER_HP,
+		"обездвижен: Натиск физзлит (нет урона и продвижения)")
 
 
 func test_loadout_sanitize() -> void:

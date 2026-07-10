@@ -216,6 +216,12 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s: %s недоступна в этом слоте" % [unit.full_name(), def.name])
 		return
+	# Обездвиженный не может применять скиллы, двигающие его самого (Прыжок/Рывок/Натиск) —
+	# как и обычный ход, они физзлят. Фиксируем ДО списания маны (иначе штраф за то, что нельзя было).
+	if unit.immobilized and _skill_moves_caster(skill):
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s обездвижен — %s невозможен" % [unit.full_name(), def.name])
+		return
 	if unit.mana < def.mana:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s: не хватает маны на %s" % [unit.full_name(), def.name])
@@ -411,6 +417,8 @@ func _check_reflexes(state: MatchState, actor: Unit, cell: Vector2i, events: Arr
 	var v := state.unit_at(cell)
 	if v == null or v.owner == actor.owner or not v.reflexes_armed:
 		return
+	if v.immobilized:   # уворот — это движение, обездвиженный не уходит из-под удара
+		return
 	if _cheb(actor.cell, cell) != 1:
 		return
 	var dir := _dir_sign(v.cell - actor.cell)
@@ -438,6 +446,11 @@ func _push(events: Array, state: MatchState, type: int, text: String, extra: Dic
 
 func _dir_sign(delta: Vector2i) -> Vector2i:
 	return Vector2i(signi(delta.x), signi(delta.y))
+
+
+# Скиллы, чей эффект перемещает самого кастера (значит, блокируются обездвиживанием)
+func _skill_moves_caster(skill: int) -> bool:
+	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT]
 
 
 # Первый живой юнит на прямой от from к target (стена/край -> пуля погашена, null).

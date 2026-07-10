@@ -25,7 +25,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 2
+const PROTOCOL_VERSION := 3
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -75,18 +75,18 @@ const TRAP_MANA := 1
 const TRAP_DMG := 4
 const TRAP_RADIUS := 2
 
-const SNIPE_MANA := 2
+const SNIPE_MANA := 3
 const SNIPE_DMG := 6
 const SNIPE_MIN := 2
 const SNIPE_MAX := 7
 
-const SHOTGUN_MANA := 3
+const SHOTGUN_MANA := 4
 const SHOTGUN_DMG := 5
 const SHOTGUN_KNOCKBACK := 1
 
 const CANCEL_MANA := 2
 
-const HEAL_MANA := 3
+const HEAL_MANA := 4
 const HEAL_AMOUNT := 5
 const HEAL_RADIUS := 2
 
@@ -103,7 +103,7 @@ const DASH_MANA := 3
 const DASH_DMG := 4
 
 # Натиск: бьёт соседа, отбрасывает его и занимает освободившуюся клетку
-const ONSLAUGHT_MANA := 3
+const ONSLAUGHT_MANA := 4
 const ONSLAUGHT_DMG := 5
 
 # Отстрел кристаллов: первый юнит на каждой из 4 диагоналей (по своим тоже)
