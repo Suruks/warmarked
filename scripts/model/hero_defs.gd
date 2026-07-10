@@ -53,13 +53,24 @@ static func pool(hero_type: int) -> Array:
 		Consts.HeroType.FAIRY:
 			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH]
 		Consts.HeroType.CRYSTAL:
-			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.DASH,
-					Consts.Skill.ONSLAUGHT, Consts.Skill.CRYSTAL_SHOT, Consts.Skill.REFLEXES]
+			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.ONSLAUGHT,
+					Consts.Skill.DASH, Consts.Skill.CRYSTAL_SHOT, Consts.Skill.REFLEXES]
 	return []
 
 
 static func default_skills(hero_type: int) -> Array:
 	return pool(hero_type).slice(0, Consts.SKILLS_PER_HERO)
+
+
+# Порядок слотов ABILITY1..3 в бою: по возрастанию маны, id скилла как
+# детерминированный вторичный ключ (одинаково у обоих пиров -> лок-степ цел).
+static func sorted_by_mana(skills: Array) -> Array:
+	var out := skills.duplicate()
+	out.sort_custom(func(a, b):
+		var ma := skill_def(a).mana
+		var mb := skill_def(b).mana
+		return a < b if ma == mb else ma < mb)
+	return out
 
 
 # Единственный каталог: описание по id скилла. Всё остальное (резолвер, таргетинг,

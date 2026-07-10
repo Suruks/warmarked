@@ -27,7 +27,7 @@ var shield_armed: bool = false
 # Рефлексы Кристалкайнда. Взводится во время разрешения, срабатывает один раз. Сбрасывается в начале раунда.
 var reflexes_armed: bool = false
 
-# Кит: ровно SKILLS_PER_HERO id из Consts.Skill, в порядке слотов ABILITY1..3
+# Кит: ровно SKILLS_PER_HERO id из Consts.Skill, слоты ABILITY1..3 по возрастанию маны
 var skills: Array = []
 
 
@@ -37,7 +37,7 @@ func _init(p_id: int, p_owner: int, p_hero_type: int, p_cell: Vector2i, p_skills
 	hero_type = p_hero_type
 	cell = p_cell
 	home_cell = p_cell
-	skills = Loadout.sanitize_hero(p_hero_type, p_skills)
+	skills = HeroDefs.sorted_by_mana(Loadout.sanitize_hero(p_hero_type, p_skills))
 	match hero_type:
 		Consts.HeroType.HUNTER: max_hp = Consts.HUNTER_HP
 		Consts.HeroType.FAIRY: max_hp = Consts.FAIRY_HP

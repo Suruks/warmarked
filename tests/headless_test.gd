@@ -228,7 +228,7 @@ func test_crystal_no_passive() -> void:
 	var crystal := _place(s, 5, Vector2i(3, 4), 10)  # B crystal рядом
 	fairy.mana = Consts.FLASH_MANA
 	var oa := _slots()
-	oa[0] = Order.make(1, Consts.Action.ABILITY3, Vector2i(3, 3))  # вспышка (радиус 1)
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 3))  # вспышка (радиус 1)
 	var r := Resolver.new()
 	r.resolve(s, oa, _slots(), Consts.Player.A)
 	var expect := 10 - (Consts.FLASH_DMG - Consts.CRYSTAL_PASSIVE_REDUCTION)
@@ -280,7 +280,7 @@ func test_fairy_shield_ally() -> void:
 	var enemy := _place(s, 3, Vector2i(5, 4))   # B hunter (снайпер), линия (5,4)->(3,4) чиста
 	enemy.mana = Consts.SNIPE_MANA
 	var oa := _slots()
-	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 4))   # щит на союзника
+	oa[0] = Order.make(1, Consts.Action.ABILITY2, Vector2i(3, 4))   # щит на союзника
 	var ob := _slots()
 	ob[2] = Order.make(3, Consts.Action.ABILITY2, Vector2i(3, 4))   # снайп по нему (слот 3)
 	var r := Resolver.new()
@@ -379,7 +379,7 @@ func test_shield_nontarget_and_order() -> void:
 	var fairy := _place(s, 1, Vector2i(3, 3))
 	fairy.mana = Consts.CANCEL_MANA
 	var occ := Targeting.build_occupancy(s)
-	var cands := Targeting.candidates(s, fairy, Consts.Action.ABILITY1, fairy.cell, occ)
+	var cands := Targeting.candidates(s, fairy, Consts.Action.ABILITY2, fairy.cell, occ)
 	_check(Vector2i(3, 2) in cands, "щит: пустая соседняя клетка — валидная цель (нон-таргет)")
 
 	# 2) порядок важен: щит РАНЬШЕ прихода союзника → физзл (клетка пуста в этот тик)
@@ -387,7 +387,7 @@ func test_shield_nontarget_and_order() -> void:
 	_place(s1, 1, Vector2i(3, 3)).mana = Consts.CANCEL_MANA   # A fairy
 	var hunter1 := _place(s1, 0, Vector2i(2, 2))    # A hunter, придёт на (3,2) вторым
 	var oa1 := _slots()
-	oa1[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 2))       # щит на (3,2)
+	oa1[0] = Order.make(1, Consts.Action.ABILITY2, Vector2i(3, 2))       # щит на (3,2)
 	oa1[1] = Order.make_move(0, [Vector2i(1, 0)] as Array[Vector2i])     # (2,2)->(3,2)
 	Resolver.new().resolve(s1, oa1, _slots(), Consts.Player.A)
 	_check(not hunter1.shield_armed, "порядок: щит до прихода — не наложился")
@@ -398,7 +398,7 @@ func test_shield_nontarget_and_order() -> void:
 	var hunter2 := _place(s2, 0, Vector2i(2, 2))
 	var oa2 := _slots()
 	oa2[0] = Order.make_move(0, [Vector2i(1, 0)] as Array[Vector2i])     # (2,2)->(3,2)
-	oa2[1] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 2))       # щит на (3,2)
+	oa2[1] = Order.make(1, Consts.Action.ABILITY2, Vector2i(3, 2))       # щит на (3,2)
 	Resolver.new().resolve(s2, oa2, _slots(), Consts.Player.A)
 	_check(hunter2.shield_armed, "порядок: щит после прихода — наложился")
 
@@ -583,7 +583,7 @@ func test_validator_target_geometry() -> void:
 		"валидатор: удар Феи по диагонали принят")
 	# Лечение вне радиуса 2
 	_place(s, 1, Vector2i(2, 4)).mana = Consts.HEAL_MANA
-	_check(_san1(s, Order.make(1, Consts.Action.ABILITY2, Vector2i(2, 0), Vector2i(0, -4), true)).is_empty(),
+	_check(_san1(s, Order.make(1, Consts.Action.ABILITY3, Vector2i(2, 0), Vector2i(0, -4), true)).is_empty(),
 		"валидатор: лечение через всю доску отклонено")
 
 

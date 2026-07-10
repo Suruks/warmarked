@@ -38,7 +38,7 @@ const BOARD_W := 7
 const BOARD_H := 7
 
 # --- Матч ---
-const WIN_SCORE := 7
+const WIN_SCORE := 5
 # Килл — это ТЕМП, а не победа: пока враг лежит, вы и так забираете точки. Прямая награда
 # держится маленькой, иначе килл суммарно стоит больше половины матча.
 const KILL_POINTS := 1
@@ -83,8 +83,8 @@ const HEAL_MANA := 3
 const HEAL_AMOUNT := 5
 const HEAL_RADIUS := 2
 
-const FLASH_MANA := 2
-const FLASH_DMG := 4
+const FLASH_MANA := 1
+const FLASH_DMG := 3
 
 const JUMP_MANA := 1
 const JUMP_DMG := 3
@@ -96,8 +96,8 @@ const DASH_MANA := 3
 const DASH_DMG := 4
 
 # Натиск: бьёт соседа, отбрасывает его и занимает освободившуюся клетку
-const ONSLAUGHT_MANA := 2
-const ONSLAUGHT_DMG := 3
+const ONSLAUGHT_MANA := 3
+const ONSLAUGHT_DMG := 5
 
 # Отстрел кристаллов: первый юнит на каждой из 4 диагоналей (по своим тоже)
 const CRYSTAL_SHOT_MANA := 2
