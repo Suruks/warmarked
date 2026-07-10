@@ -65,7 +65,7 @@ const PERSIST_ROUNDS := 0              # капкан/засада живут р
 # и не создаёт ни одного осмысленного порога. Кристалкайнд без пассивки держится за счёт HP.
 const HUNTER_HP := 9
 const FAIRY_HP := 11
-const CRYSTAL_HP := 15
+const CRYSTAL_HP := 13
 
 const HUNTER_ATK_DMG := 2
 const FAIRY_ATK_DMG := 2
@@ -141,7 +141,7 @@ static func hero_name(t: int) -> String:
 	match t:
 		HeroType.HUNTER: return "Охотник"
 		HeroType.FAIRY: return "Фея"
-		HeroType.CRYSTAL: return "Кристалкайнд"
+		HeroType.CRYSTAL: return "Кристалл"
 	return "?"
 
 
