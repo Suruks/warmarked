@@ -16,6 +16,15 @@ const MOVE_DUR := 0.36
 const LUNGE_DUR := 0.32
 const FLASH_UP := 0.20
 const FLASH_DOWN := 0.60
+const FLOAT_DUR := 1.60          # время жизни всплывающей цифры урона/лечения
+const FLOAT_HOLD := 0.55         # доля жизни, которую цифра висит непрозрачной, прежде чем гаснуть
+
+# Насколько далеко токен подаётся к цели (в долях клетки)
+const LUNGE_MELEE := 0.32        # ближняя атака — заметный удар
+const LUNGE_RANGED := 0.16       # дальняя — лёгкая отдача в сторону выстрела
+
+const COL_DMG := Color(1.0, 0.36, 0.36)
+const COL_HEAL := Color(0.38, 1.0, 0.52)
 
 var board: Board
 var snap: Dictionary = {}
@@ -24,6 +33,8 @@ var flip := false          # true → вид повёрнут на 180° (пер
 
 var vis := {}    # id -> Vector2 (пиксельный центр токена, анимируется; уже в экранных коорд.)
 var tint := {}   # id -> Color (цвет-вспышка поверх иконки, alpha=сила)
+var floaters: Array = []   # [{uid:int, pos:Vector2, text:String, color:Color, p:float}] — всплывающие цифры
+var _floater_uid := 0
 
 var _font: Font
 var markers: Array = []
@@ -69,12 +80,15 @@ func _owner_color(owner: int) -> Color:
 	return COL_A if owner == my_player else COL_B   # COL_A — синий, COL_B — красный
 
 
+# Полная перерисовка (смена фазы/раунда): гасим и незавершённые всплывающие цифры.
 func render(p_snap: Dictionary) -> void:
 	snap = p_snap
+	floaters.clear()
 	_reset_visuals()
 	queue_redraw()
 
 
+# Синхронизация после одного события плейбека: цифры продолжают жить своей анимацией.
 func reconcile(p_snap: Dictionary) -> void:
 	snap = p_snap
 	_reset_visuals()
@@ -152,15 +166,16 @@ func anim_move(id: int, to_cell: Vector2i) -> Tween:
 	return tw
 
 
-func anim_lunge(id: int, toward_cell: Vector2i) -> Tween:
+# Толчок в сторону цели и обратно. reach — глубина в долях клетки (ближняя/дальняя).
+func anim_lunge(id: int, toward_cell: Vector2i, reach: float = LUNGE_MELEE) -> Tween:
 	var start: Vector2 = vis.get(id, Vector2.ZERO)
 	var dir := (_scell(toward_cell) - start)
 	if dir.length() > 0.001:
 		dir = dir.normalized()
-	var peak := start + dir * CELL * 0.32
+	var peak := start + dir * CELL * reach
 	var tw := create_tween()
-	tw.tween_method(Callable(self, "_set_vis").bind(id), start, peak, LUNGE_DUR * 0.5)
-	tw.tween_method(Callable(self, "_set_vis").bind(id), peak, start, LUNGE_DUR * 0.5)
+	tw.tween_method(Callable(self, "_set_vis").bind(id), start, peak, LUNGE_DUR * 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_method(Callable(self, "_set_vis").bind(id), peak, start, LUNGE_DUR * 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	return tw
 
 
@@ -171,6 +186,35 @@ func anim_flash(id: int, base: Color) -> Tween:
 	return tw
 
 
+# Всплывающая цифра над юнитом: «-4» красным, «+3» зелёным. Не блокирует плейбек —
+# живёт своей анимацией и снимает себя сама.
+func anim_floater(id: int, text: String, col: Color) -> Tween:
+	_floater_uid += 1
+	var pos: Vector2 = vis.get(id, _scell(cell_of(id)))
+	# цифры живут дольше одного события: если по этому же месту уже висит цифра
+	# (капкан + засада за один вход), поднимаем новую выше, чтобы не наложились
+	var stack := 0
+	for other in floaters:
+		if other.pos.distance_to(pos) < CELL * 0.9:
+			stack += 1
+	var f := {"uid": _floater_uid, "pos": pos - Vector2(0, stack * 24), "text": text, "color": col, "p": 0.0}
+	floaters.append(f)
+	var tw := create_tween()
+	tw.tween_method(Callable(self, "_set_float").bind(f), 0.0, 1.0, FLOAT_DUR).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_callback(Callable(self, "_drop_float").bind(f.uid))
+	return tw
+
+
+func anim_damage_number(id: int, amount: int) -> void:
+	if amount > 0:
+		anim_floater(id, "-%d" % amount, COL_DMG)
+
+
+func anim_heal_number(id: int, amount: int) -> void:
+	if amount > 0:
+		anim_floater(id, "+%d" % amount, COL_HEAL)
+
+
 func _set_vis(p: Vector2, id: int) -> void:
 	vis[id] = p
 	queue_redraw()
@@ -178,6 +222,20 @@ func _set_vis(p: Vector2, id: int) -> void:
 
 func _set_flash(a: float, id: int, base: Color) -> void:
 	tint[id] = Color(base.r, base.g, base.b, a)
+	queue_redraw()
+
+
+func _set_float(p: float, f: Dictionary) -> void:
+	f.p = p
+	queue_redraw()
+
+
+# Снимаем именно свой флоатер: два одинаковых по содержимому не должны стирать друг друга.
+func _drop_float(uid: int) -> void:
+	for i in floaters.size():
+		if floaters[i].uid == uid:
+			floaters.remove_at(i)
+			break
 	queue_redraw()
 
 
@@ -227,6 +285,21 @@ func _draw() -> void:
 		else:
 			_draw_grave(u)
 	_draw_markers()
+	_draw_floaters()   # цифры урона/лечения — поверх юнитов и маркеров
+
+
+# Цифра всплывает над токеном, висит непрозрачной FLOAT_HOLD своей жизни, затем гаснет.
+func _draw_floaters() -> void:
+	for f in floaters:
+		var p: float = f.p
+		var ctr: Vector2 = f.pos + Vector2(0, -CELL * 0.34 - p * CELL * 0.50)
+		var col: Color = f.color
+		col.a = 1.0 if p <= FLOAT_HOLD else clampf(1.0 - (p - FLOAT_HOLD) / (1.0 - FLOAT_HOLD), 0.0, 1.0)
+		var left := Vector2(ctr.x - CELL * 0.5, ctr.y)
+		# тёмная подложка-обводка, чтобы цифра читалась на любом фоне
+		draw_string(_font, left + Vector2(1, 1), f.text, HORIZONTAL_ALIGNMENT_CENTER, CELL, 24,
+			Color(0, 0, 0, col.a * 0.75))
+		draw_string(_font, left, f.text, HORIZONTAL_ALIGNMENT_CENTER, CELL, 24, col)
 
 
 func _draw_hazard(cell: Vector2i, tex: Texture2D, owner: int) -> void:

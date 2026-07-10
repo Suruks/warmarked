@@ -3,19 +3,41 @@ extends RefCounted
 
 ## Сериализация приказов для передачи по сети (Godot RPC умеет Variant: int/Vector2i/Array).
 ## Компактные ключи, чтобы пакет был меньше.
+##
+## Десериализация ЗАЩИЩЁННАЯ: сервер один на все матчи, поэтому битый/враждебный пакет
+## не должен ронять процесс. Любое поле неверного типа → приказ вырождается в пустой.
+
+
+const MAX_PATH_STEPS := 16   # санити-кэп на длину пути (легальность считает OrderValidator)
 
 
 static func order_to_dict(o: Order) -> Dictionary:
 	return {"h": o.hero_id, "a": o.action, "t": o.target, "o": o.offset, "r": o.relative, "p": o.path}
 
 
-static func order_from_dict(d: Dictionary) -> Order:
-	var o := Order.new(int(d["h"]), int(d["a"]))
-	o.target = d["t"]
-	o.offset = d.get("o", Vector2i.ZERO)
-	o.relative = d.get("r", false)
+# Возвращает валидный по ТИПАМ Order; при любой аномалии — Order.empty().
+# Игровую легальность (дальность, мана, слоты) проверяет OrderValidator.
+static func order_from_dict(d: Variant) -> Order:
+	if typeof(d) != TYPE_DICTIONARY:
+		return Order.empty()
+	if not (_is_int(d.get("h")) and _is_int(d.get("a"))):
+		return Order.empty()
+	var action: int = int(d["a"])
+	if action < Consts.Action.EMPTY or action > Consts.Action.PASS:
+		return Order.empty()
+	var o := Order.new(int(d["h"]), action)
+	o.target = _as_vec(d.get("t"), Vector2i(-1, -1))
+	o.offset = _as_vec(d.get("o"), Vector2i.ZERO)
+	o.relative = bool(d.get("r", false)) if typeof(d.get("r")) == TYPE_BOOL else false
+	var raw: Variant = d.get("p", [])
+	if typeof(raw) != TYPE_ARRAY:
+		return Order.empty()
+	if (raw as Array).size() > MAX_PATH_STEPS:
+		return Order.empty()
 	var p: Array[Vector2i] = []
-	for c in d["p"]:
+	for c in raw:
+		if typeof(c) != TYPE_VECTOR2I:
+			return Order.empty()
 		p.append(c)
 	o.path = p
 	return o
@@ -28,8 +50,18 @@ static func orders_to_data(orders: Array) -> Array:
 	return out
 
 
-static func orders_from_data(data: Array) -> Array:
+# Всегда возвращает ровно ORDER_SLOTS приказов (лишние отбрасываются, недостающие — пустые).
+static func orders_from_data(data: Variant) -> Array:
 	var out: Array = []
-	for d in data:
-		out.append(order_from_dict(d))
+	var arr: Array = data if typeof(data) == TYPE_ARRAY else []
+	for i in Consts.ORDER_SLOTS:
+		out.append(order_from_dict(arr[i]) if i < arr.size() else Order.empty())
 	return out
+
+
+static func _is_int(v: Variant) -> bool:
+	return typeof(v) == TYPE_INT
+
+
+static func _as_vec(v: Variant, fallback: Vector2i) -> Vector2i:
+	return v if typeof(v) == TYPE_VECTOR2I else fallback

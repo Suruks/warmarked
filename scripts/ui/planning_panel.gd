@@ -20,9 +20,8 @@ const SLOT_BIG := 60
 const SLOT_SMALL := 28
 const SLOT_GAP := 6
 const HEROICON := 34
-const PANEL_W := BoardView.CELL * Consts.BOARD_W   # 532
-# высота панели = как в main: 1200 - panel_top - 8, где panel_top = 42 + доска(532) + 44
-const PANEL_H := 1200 - (42 + BoardView.CELL * Consts.BOARD_H + 44) - 8
+const PANEL_W := Layout.PANEL_W
+const PANEL_H := Layout.PANEL_H
 const SKILLS_Y := 4
 const SKILLS_H := 104
 const DESC_Y := 116
@@ -543,6 +542,13 @@ func _on_done() -> void:
 			var has_t: bool = slot_target[i].x >= 0
 			var off: Vector2i = (slot_target[i] - _origin_for(slot_hero[i], i)) if has_t else Vector2i.ZERO
 			orders.append(Order.make(slot_hero[i], slot_action[i], slot_target[i], off, has_t))
+	# Страховка: всё, что UI считает легальным, обязано пережить серверную санитизацию.
+	# Если правила разойдутся, онлайн-игрок иначе молча потеряет действие — лучше ошибка здесь.
+	var checked := OrderValidator.sanitize(state, orders, player)
+	for i in Consts.ORDER_SLOTS:
+		if not orders[i].is_empty() and checked[i].is_empty():
+			_err_lbl.text = "Слот %d: приказ отклонён проверкой правил" % (i + 1)
+			return
 	board_view.clear_highlights()
 	board_view.set_markers([])
 	board_view.set_selected_unit(-1)

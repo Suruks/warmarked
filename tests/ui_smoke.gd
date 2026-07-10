@@ -34,8 +34,10 @@ func _initialize() -> void:
 	pp.slot_action[0] = Consts.Action.MOVE
 	pp.slot_target[0] = move_cell
 	pp.slot_path[0] = paths[move_cell]
-	# слот 1: Охотник ставит капкан рядом
-	var trap_cells := Targeting.candidates(state, hunter, Consts.Action.ABILITY1, hunter.cell)
+	# слот 1: Охотник ставит капкан рядом. Целиться надо от ЗАПЛАНИРОВАННОЙ позиции (после хода
+	# в слоте 0), иначе смещение цели выйдет за радиус капкана — ровно так, как считает сам UI.
+	var trap_origin: Vector2i = pp._origin_for(0, 1)
+	var trap_cells := Targeting.candidates(state, hunter, Consts.Action.ABILITY1, trap_origin, pp._planned_occupancy())
 	pp.slot_hero[1] = 0
 	pp.slot_action[1] = Consts.Action.ABILITY1
 	pp.slot_target[1] = trap_cells[0]
@@ -104,8 +106,63 @@ func _initialize() -> void:
 	pp3.slot_target[0] = Vector2i(3, 2)           # тыкнули в клетку с врагом
 	_check(pp3._origin_for(2, 1) == Vector2i(4, 2), "прыжок: назначение — клетка ЗА целью (4,2) [%s]" % str(pp3._origin_for(2, 1)))
 
+	await _smoke_resolution_playback()
+
 	print("=== UI smoke done ===")
 	quit(0)
+
+
+# Реальный прогон ResolutionView: анимации толчка/вспышки/всплывающих цифр до конца раунда.
+func _smoke_resolution_playback() -> void:
+	# Во время _initialize корневое окно ещё не в дереве: у добавленных узлов get_tree() == null,
+	# твины и таймеры не запускаются. Ждём первый кадр, иначе плейбек «пройдёт» вхолостую.
+	await process_frame
+
+	var st := MatchState.new()
+	st.setup()
+	st.begin_round()
+	var fairy := st.get_unit(1)          # A Фея
+	fairy.cell = Vector2i(3, 3)
+	fairy.mana = Consts.HEAL_MANA
+	var hunter := st.get_unit(0)         # A Охотник — раненый, чтобы лечение дало > 0
+	hunter.cell = Vector2i(3, 4)
+	hunter.hp = 5
+	st.get_unit(5).cell = Vector2i(2, 3)  # B Кристалкайнд — цель удара
+
+	var oa := Order.empty_slots()
+	oa[0] = Order.make(1, Consts.Action.ATTACK, Vector2i(2, 3), Vector2i(-1, 0), true)
+	oa[1] = Order.make(1, Consts.Action.ABILITY2, Vector2i(3, 4), Vector2i(0, 1), true)
+	var events := Resolver.new().resolve(st, oa, Order.empty_slots(), Consts.Player.A)
+
+	var dmg: Array = events.filter(func(e): return e.type == Consts.EventType.DAMAGE)
+	var heal: Array = events.filter(func(e): return e.type == Consts.EventType.HEAL)
+	_check(dmg.size() > 0 and dmg[0].get("amount", 0) == Consts.FAIRY_ATK_DMG,
+		"событие урона несёт amount для всплывающей цифры")
+	_check(heal.size() > 0 and heal[0].get("amount", 0) > 0,
+		"событие лечения несёт amount для всплывающей цифры")
+
+	var bv := BoardView.new()
+	get_root().add_child(bv)
+	bv.setup(st.board)
+	bv.render(st.snapshot())
+	var rv := ResolutionView.new()
+	get_root().add_child(rv)
+	rv.begin(events, bv)
+
+	var waited := 0.0
+	var seen_floaters := 0        # цифры живут недолго — ловим их по ходу проигрывания
+	while rv._playing and waited < 30.0:
+		await create_timer(0.05).timeout
+		waited += 0.05
+		seen_floaters = maxi(seen_floaters, bv.floaters.size())
+	_check(not rv._playing, "ResolutionView доиграл все события до конца")
+	_check(seen_floaters > 0, "всплывающие цифры появлялись во время анимации [%d]" % seen_floaters)
+	# цифра живёт дольше своего события и может пережить конец плейбека — дожидаемся её ухода
+	var tail := 0.0
+	while not bv.floaters.is_empty() and tail < BoardView.FLOAT_DUR + 1.0:
+		await create_timer(0.05).timeout
+		tail += 0.05
+	_check(bv.floaters.is_empty(), "всплывающие цифры сняли себя после анимации [%d]" % bv.floaters.size())
 
 
 func _check(cond: bool, label: String) -> void:

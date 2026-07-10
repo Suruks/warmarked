@@ -20,7 +20,7 @@ func _on_frame() -> void:
 		scene.state.score[Consts.Player.B] = 2                 # очки игрока (B) — под полем
 		var dead = scene.state.get_unit(4)                     # B Фея — «убьём» ради могилы
 		dead.alive = false
-		dead.dead_timer = 3
+		dead.dead_timer = Consts.RESPAWN_DELAY
 		dead.death_cell = dead.cell
 		# поставить капкан на доску (для проверки иконки капкана)
 		scene.state.traps.append({"cell": Vector2i(3, 3), "owner_player": Consts.Player.B, "owner_id": 5, "expire_round": 5})

@@ -10,6 +10,8 @@ var _fail := 0
 func _initialize() -> void:
 	print("=== Warmarked net-core tests ===")
 	test_protocol_roundtrip()
+	test_protocol_rejects_malformed()
+	test_session_sanitizes_orders()
 	test_blind_gate_and_lockstep()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -41,6 +43,41 @@ func test_protocol_roundtrip() -> void:
 	var mv := Order.make_move(2, [Vector2i(5, 5), Vector2i(5, 4)] as Array[Vector2i])
 	var mvb := NetProtocol.order_from_dict(NetProtocol.order_to_dict(mv))
 	_check(mvb.path.size() == 2 and mvb.path[1] == Vector2i(5, 4), "сериализация пути хода")
+
+
+func test_protocol_rejects_malformed() -> void:
+	# битый/враждебный пакет не должен ронять сервер — вырождается в пустой приказ
+	_check(NetProtocol.order_from_dict("не словарь").is_empty(), "протокол: не-словарь → пустой приказ")
+	_check(NetProtocol.order_from_dict({}).is_empty(), "протокол: пустой словарь → пустой приказ")
+	_check(NetProtocol.order_from_dict({"h": "x", "a": 1, "p": []}).is_empty(), "протокол: hero_id не int → пустой")
+	_check(NetProtocol.order_from_dict({"h": 0, "a": 999, "p": []}).is_empty(), "протокол: неизвестный action → пустой")
+	_check(NetProtocol.order_from_dict({"h": 0, "a": Consts.Action.MOVE, "p": "хех"}).is_empty(),
+		"протокол: path не массив → пустой")
+	_check(NetProtocol.order_from_dict({"h": 0, "a": Consts.Action.MOVE, "p": [1, 2]}).is_empty(),
+		"протокол: элементы path не Vector2i → пустой")
+	# orders_from_data всегда даёт ровно ORDER_SLOTS приказов
+	_check(NetProtocol.orders_from_data("мусор").size() == Consts.ORDER_SLOTS, "протокол: мусор → 4 пустых слота")
+	_check(NetProtocol.orders_from_data([]).size() == Consts.ORDER_SLOTS, "протокол: короткий массив дополнен до 4")
+
+
+func test_session_sanitizes_orders() -> void:
+	# сервер не доверяет клиенту: телепорт-ход и удар через всю доску вырезаются,
+	# а раскрывается ровно то, что резолвится (иначе лок-степ сломается)
+	var srv := MatchSession.new(true)
+	var cheat: Array = [Order.empty(), Order.empty(), Order.empty(), Order.empty()]
+	cheat[0] = Order.make_move(0, [Vector2i(0, -5)] as Array[Vector2i])                    # телепорт
+	cheat[1] = Order.make(1, Consts.Action.ATTACK, Vector2i(3, 0), Vector2i(0, -6), true)  # удар в упор через доску
+	cheat[2] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])                    # легальный ход
+	srv.submit(0, cheat)
+	var stored: Array = srv.orders_of(0)
+	_check(stored[0].is_empty(), "сессия: телепорт-ход санирован")
+	_check(stored[1].is_empty(), "сессия: ближний удар через всю доску санирован")
+	_check(not stored[2].is_empty(), "сессия: легальный ход сохранён")
+	# хантер A стартует на (1,6) и после резолва должен сдвинуться ровно на 1 клетку
+	srv.submit(1, [Order.empty(), Order.empty(), Order.empty(), Order.empty()])
+	srv.resolve()
+	_check(srv.state.get_unit(0).cell == Vector2i(1, 5), "сессия: читер прошёл только легальный шаг [%s]"
+		% str(srv.state.get_unit(0).cell))
 
 
 func test_blind_gate_and_lockstep() -> void:

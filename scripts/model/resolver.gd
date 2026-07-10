@@ -45,18 +45,35 @@ func _resolve_slot(state: MatchState, order: Order, player: int, slot: int, even
 func _do_move(state: MatchState, unit: Unit, path: Array, events: Array) -> void:
 	# path — шаги-смещения; применяем от ТЕКУЩЕЙ клетки (относительное движение: если юнита
 	# отбросило/сместило до его хода, план применяется от новой позиции).
+	#
+	# Союзники НЕ блокируют движение: сквозь них проходят насквозь, но встать на их клетку
+	# нельзя (две фигуры не стоят на одной клетке). Враги блокируют полностью.
+	# Транзитные клетки не считаются «входом», поэтому капканы/засады на них не срабатывают.
 	if unit.immobilized:
 		_push(events, state, Consts.EventType.FIZZLE, "%s обездвижен — ход отменён" % unit.full_name())
 		return
-	for d in path:
-		var next: Vector2i = unit.cell + d
-		var occupant := state.unit_at(next)
-		if not state.board.is_passable(next) or (occupant != null and occupant.id != unit.id):
+	var cur := unit.cell
+	for i in path.size():
+		var next: Vector2i = cur + path[i]
+		if not state.board.is_passable(next):
 			_push(events, state, Consts.EventType.INFO,
 				"%s: ход заблокирован на (%d,%d)" % [unit.full_name(), next.x, next.y])
 			return
-		_enter(state, unit, next, events, unit.owner, Consts.EventType.MOVE,
-			"%s -> (%d,%d)" % [unit.full_name(), next.x, next.y])
+		var occupant := state.unit_at(next)
+		if occupant != null and occupant.id != unit.id:
+			if occupant.owner != unit.owner:
+				_push(events, state, Consts.EventType.INFO,
+					"%s: ход заблокирован на (%d,%d)" % [unit.full_name(), next.x, next.y])
+				return
+			if i == path.size() - 1:
+				_push(events, state, Consts.EventType.INFO,
+					"%s: на (%d,%d) стоит союзник — негде встать" % [unit.full_name(), next.x, next.y])
+				return
+			cur = next   # проходим сквозь союзника, клетку не занимаем
+			continue
+		cur = next
+		_enter(state, unit, cur, events, unit.owner, Consts.EventType.MOVE,
+			"%s -> (%d,%d)" % [unit.full_name(), cur.x, cur.y])
 		if not unit.alive:
 			return
 
@@ -85,10 +102,11 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 				_deal_damage(state, unit, Consts.TRAP_DMG, t.owner_player, events, "капкан")
 			if not unit.alive:
 				return
-	# Засады: срабатывают, когда любой ДРУГОЙ юнит входит рядом с Кристалкайндом
+	# Засады: срабатывают, когда ВРАЖЕСКИЙ юнит входит рядом с Кристалкайндом
+	# (как и капкан — по своим не бьёт; owner.id == unit.id покрыт проверкой владельца)
 	for a in state.ambushes.duplicate():
 		var owner := state.get_unit(a.owner_id)
-		if owner == null or not owner.alive or owner.id == unit.id:
+		if owner == null or not owner.alive or owner.owner == unit.owner:
 			continue
 		if _cheb(owner.cell, cell) == 1:
 			state.ambushes.erase(a)
@@ -133,7 +151,7 @@ func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int,
 	target.hp -= dmg
 	_push(events, state, Consts.EventType.DAMAGE,
 		"%s получает %d (%s) -> HP %d/%d" % [target.full_name(), dmg, label, max(target.hp, 0), target.max_hp],
-		{"victim": target.id})
+		{"victim": target.id, "amount": dmg})   # amount — для всплывающей цифры в UI
 	if target.hp <= 0:
 		_kill(state, target, src_player, events)
 
@@ -269,7 +287,7 @@ func _fairy_ability(state: MatchState, unit: Unit, idx: int, order: Order, event
 			ally.hp = min(ally.max_hp, ally.hp + Consts.HEAL_AMOUNT)
 			_push(events, state, Consts.EventType.HEAL,
 				"%s лечит %s на %d -> HP %d/%d" % [unit.full_name(), ally.full_name(), ally.hp - before, ally.hp, ally.max_hp],
-				{"victim": ally.id})
+				{"victim": ally.id, "amount": ally.hp - before})   # может быть 0 при полном HP
 		2:  # Вспышка
 			for d in Consts.DIRS8:
 				var v := state.unit_at(unit.cell + d)

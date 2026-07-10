@@ -7,8 +7,6 @@ extends Control
 
 enum Phase { MENU, HANDOFF, PLAN, RESOLVE, VICTORY }
 
-const BOARD_X := 4
-const BOARD_Y := 42
 const DEFAULT_HOST := "wss://warmarked.duckdns.org"
 
 var state: MatchState
@@ -47,30 +45,28 @@ func _ready() -> void:
 
 
 func _build_layout() -> void:
-	var board_px := BoardView.CELL * Consts.BOARD_W
-	var board_bottom := BOARD_Y + BoardView.CELL * Consts.BOARD_H
+	Layout.verify_project_settings()
 
 	# очки противника — сверху (вместо строки инфо)
 	_opp_bar = ScoreBar.new()
 	add_child(_opp_bar)
-	_opp_bar.position = Vector2(BOARD_X, 8)
-	_opp_bar.size = Vector2(board_px, 30)
+	_opp_bar.position = Vector2(Layout.BOARD_X, Layout.SCORE_TOP_Y)
+	_opp_bar.size = Vector2(Layout.BOARD_PX, Layout.SCORE_H)
 
 	board_view = BoardView.new()
-	board_view.position = Vector2(BOARD_X, BOARD_Y)
+	board_view.position = Vector2(Layout.BOARD_X, Layout.BOARD_Y)
 	add_child(board_view)
-	board_view.setup(Board.new())
+	board_view.setup(Board.new())   # пустая доска как фон меню; матч подменит её на state.board
 
 	# очки игрока — под доской, над панелью
 	_my_bar = ScoreBar.new()
 	add_child(_my_bar)
-	_my_bar.position = Vector2(BOARD_X, board_bottom + 4)
-	_my_bar.size = Vector2(board_px, 30)
+	_my_bar.position = Vector2(Layout.BOARD_X, Layout.SCORE_BOTTOM_Y)
+	_my_bar.size = Vector2(Layout.BOARD_PX, Layout.SCORE_H)
 
-	var panel_top := board_bottom + 44   # небольшой отступ между кружками очков и скиллами
 	panel_host = MarginContainer.new()
-	panel_host.position = Vector2(BOARD_X, panel_top)
-	panel_host.custom_minimum_size = Vector2(board_px, 1200 - panel_top - 8)
+	panel_host.position = Vector2(Layout.BOARD_X, Layout.PANEL_TOP)
+	panel_host.custom_minimum_size = Vector2(Layout.PANEL_W, Layout.PANEL_H)
 	panel_host.size = panel_host.custom_minimum_size
 	add_child(panel_host)
 

@@ -27,8 +27,11 @@ func both_submitted() -> bool:
 
 
 # Приказы игрока приняты. Возвращает true, если теперь пришли оба (можно раскрывать).
+# Приказы САНИРУЮТСЯ здесь, до сохранения: клиенту доверять нельзя, а раскрываем мы ровно то,
+# что сами же и резолвим — иначе клиенты разойдутся с сервером (лок-степ сломается).
 func submit(player_index: int, orders: Array) -> bool:
-	_orders[player_index] = orders
+	var player: int = Consts.Player.A if player_index == 0 else Consts.Player.B
+	_orders[player_index] = OrderValidator.sanitize(state, orders, player)
 	return both_submitted()
 
 

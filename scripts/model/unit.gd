@@ -10,10 +10,11 @@ var max_hp: int
 var hp: int
 var mana: int
 var cell: Vector2i
+var home_cell: Vector2i     # стартовая клетка: сюда (или рядом) юнит воскресает
 
 var alive: bool = true
 var dead_timer: int = 0     # раундов до попытки респа (0 = не мёртв / готов к респу)
-var death_cell: Vector2i = Vector2i(-1, -1)
+var death_cell: Vector2i = Vector2i(-1, -1)   # где лежит могила, пока юнит мёртв
 
 # Активен ЭТОТ раунд (выставляется из immobilize_pending в начале раунда)
 var immobilized: bool = false
@@ -29,6 +30,7 @@ func _init(p_id: int, p_owner: int, p_hero_type: int, p_cell: Vector2i) -> void:
 	owner = p_owner
 	hero_type = p_hero_type
 	cell = p_cell
+	home_cell = p_cell
 	match hero_type:
 		Consts.HeroType.HUNTER: max_hp = Consts.HUNTER_HP
 		Consts.HeroType.FAIRY: max_hp = Consts.FAIRY_HP

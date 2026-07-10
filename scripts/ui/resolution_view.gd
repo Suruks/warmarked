@@ -6,6 +6,8 @@ extends VBoxContainer
 
 signal finished
 
+const STEP_PAUSE := 0.22   # пауза после каждого события, чтобы глаз успевал за доской
+
 var board_view: BoardView
 var events: Array = []
 
@@ -64,6 +66,7 @@ func _play() -> void:
 		_log.append_text(_format(e) + "\n")
 		await _animate(e)
 		board_view.reconcile(e.snapshot)
+		await _delay(STEP_PAUSE)   # передышка между действиями — иначе за раундом не уследить
 	_playing = false
 	_btn.text = "Завершить раунд"
 	_btn.disabled = false
@@ -82,30 +85,38 @@ func _animate(e: Dictionary) -> void:
 			else:
 				await _delay(0.16)
 		Consts.EventType.ATTACK, Consts.EventType.ABILITY:
+			# толчок в сторону цели и обратно — и для ближней, и для дальней (у дальней слабее,
+			# как отдача, плюс белая вспышка стрелка параллельно)
 			if e.has("actor"):
 				var tc: Vector2i = e.get("target_cell", Vector2i(-1, -1))
-				if tc.x >= 0 and _is_melee(e.actor, tc):
-					await board_view.anim_lunge(e.actor, tc).finished   # ближняя: толчок с возвратом
-				elif tc.x >= 0:
-					await board_view.anim_flash(e.actor, Color(1, 1, 1)).finished  # дальняя: белая вспышка атакующего
+				if tc.x >= 0:
+					var melee := _is_melee(e.actor, tc)
+					if not melee:
+						board_view.anim_flash(e.actor, Color(1, 1, 1))
+					var reach := BoardView.LUNGE_MELEE if melee else BoardView.LUNGE_RANGED
+					await board_view.anim_lunge(e.actor, tc, reach).finished
 				else:
-					await _delay(0.24)
+					await _delay(0.24)   # способность без цели (Вспышка, Засада)
 			else:
 				await _delay(0.2)
 		Consts.EventType.DAMAGE, Consts.EventType.COLLISION:
 			if e.has("victim"):
+				board_view.anim_damage_number(e.victim, e.get("amount", 0))
 				await board_view.anim_flash(e.victim, Color(1, 0.25, 0.25)).finished  # красная вспышка цели
 			else:
 				await _delay(0.2)
 		Consts.EventType.HEAL:
 			if e.has("victim"):
+				board_view.anim_heal_number(e.victim, e.get("amount", 0))
 				await board_view.anim_flash(e.victim, Color(0.3, 1.0, 0.45)).finished
 			else:
 				await _delay(0.2)
 		Consts.EventType.DEATH:
 			await _delay(0.4)
+		Consts.EventType.INFO:
+			pass   # заголовки слотов: паузу даст STEP_PAUSE, своя задержка не нужна
 		_:
-			await _delay(0.2)
+			await _delay(0.12)
 
 
 func _is_melee(actor_id: int, target_cell: Vector2i) -> bool:

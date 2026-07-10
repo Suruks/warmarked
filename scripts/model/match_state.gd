@@ -117,34 +117,51 @@ func begin_round() -> Array:
 	return events
 
 
+# Респ в РОДНОМ ряду, а не на клетке смерти: при коротком кулдауне возвращение под чужие
+# стволы превратилось бы в спаун-кемп. Поэтому же исчезла механика урона блокеру.
 func _try_respawn(u: Unit, events: Array) -> void:
-	var blocker := unit_at(u.death_cell)
-	if blocker != null:
-		# Вариант A: пока блокер стоит — респа нет, блокер ест урон
-		var dmg := _apply_camp_damage(blocker)
+	var cell := _respawn_cell(u)
+	if cell.x < 0:
+		u.dead_timer = 0   # свободных клеток нет — повторить попытку в следующем раунде
 		events.append(_ev(Consts.EventType.RESPAWN_BLOCKED,
-			"Респ %s заблокирован: %s на клетке смерти получает %d" % [u.full_name(), blocker.full_name(), dmg]))
-		u.dead_timer = 0  # повторить попытку в следующем раунде
-	else:
-		u.alive = true
-		u.hp = u.max_hp
-		u.cell = u.death_cell
-		u.dead_timer = 0
-		events.append(_ev(Consts.EventType.RESPAWN,
-			"%s воскрешается на (%d,%d)" % [u.full_name(), u.death_cell.x, u.death_cell.y]))
+			"Респ %s отложен: в родном ряду нет свободной клетки" % u.full_name()))
+		return
+	u.alive = true
+	u.hp = u.max_hp
+	u.mana = Consts.START_MANA   # накопленный до смерти банк не переживает респ — это и есть цена смерти
+	u.cell = cell
+	u.dead_timer = 0
+	events.append(_ev(Consts.EventType.RESPAWN,
+		"%s воскрешается на (%d,%d)" % [u.full_name(), cell.x, cell.y]))
 
 
-# Урон блокеру клетки респа — без начисления очков (средовой)
-func _apply_camp_damage(blocker: Unit) -> int:
-	var amount := Consts.BLOCKER_DMG
-	if blocker.hero_type == Consts.HeroType.CRYSTAL:
-		amount = max(0, amount - Consts.CRYSTAL_PASSIVE_REDUCTION)
-	blocker.hp -= amount
-	if blocker.hp <= 0:
-		blocker.alive = false
-		blocker.death_cell = blocker.cell
-		blocker.dead_timer = Consts.RESPAWN_DELAY
-	return amount
+# Родная клетка → ближайшая свободная в родном ряду → ближайшая свободная на доске.
+# Обход строго детерминирован: сервер и клиенты обязаны прийти к одной клетке (лок-степ).
+func _respawn_cell(u: Unit) -> Vector2i:
+	if _free_for_respawn(u.home_cell):
+		return u.home_cell
+	for d in range(1, Consts.BOARD_W):
+		for s in [-1, 1]:
+			var c := Vector2i(u.home_cell.x + d * s, u.home_cell.y)
+			if _free_for_respawn(c):
+				return c
+	var best := Vector2i(-1, -1)
+	var best_dist := Consts.BOARD_W + Consts.BOARD_H
+	for y in Consts.BOARD_H:
+		for x in Consts.BOARD_W:
+			var c := Vector2i(x, y)
+			if not _free_for_respawn(c):
+				continue
+			var dist: int = absi(c.x - u.home_cell.x) + absi(c.y - u.home_cell.y)
+			if dist < best_dist:
+				best_dist = dist
+				best = c
+	return best
+
+
+# Могилы не мешают: воскресать можно поверх павшего (своего или чужого).
+func _free_for_respawn(c: Vector2i) -> bool:
+	return board.is_passable(c) and unit_at(c) == null
 
 
 # --- Подсчёт очков в конце раунда (киллы уже начислены в резолве) ---
@@ -168,8 +185,11 @@ func score_round(events: Array) -> void:
 		events.append(_ev(Consts.EventType.INFO, "Контроль точек: равенство %d:%d, очко никому" % [a, b]))
 
 
-func _ev(type: int, text: String) -> Dictionary:
-	return {"type": type, "text": text, "snapshot": snapshot()}
+func _ev(type: int, text: String, extra: Dictionary = {}) -> Dictionary:
+	var ev := {"type": type, "text": text, "snapshot": snapshot()}
+	for k in extra:
+		ev[k] = extra[k]
+	return ev
 
 
 func snapshot() -> Dictionary:

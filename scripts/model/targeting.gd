@@ -19,21 +19,14 @@ static func _at(occ: Dictionary, cell: Vector2i):
 	return occ.get(cell, null)
 
 
-# Есть ли на клетке могила (мёртвый юнит стоит на клетке смерти)
-static func _grave_at(state: MatchState, cell: Vector2i) -> bool:
-	return state.grave_at(cell)
-
-
-static func occupied_except(occ: Dictionary, cell: Vector2i, self_id: int) -> bool:
-	var e = occ.get(cell, null)
-	return e != null and e.id != self_id
-
-
 # Достижимые ходом клетки (орто, <= MOVE_RANGE) и путь к каждой. cell -> Array[Vector2i] путь.
+# Союзник — проходим (можно пройти сквозь), но НЕ пункт назначения. Враг — глухая стена.
 static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: Dictionary = {}) -> Dictionary:
 	if occ.is_empty():
 		occ = build_occupancy(state)
 	var board := state.board
+	var me := state.get_unit(self_id)
+	var my_owner: int = me.owner if me != null else -1
 	var result := {}
 	var frontier := [origin]
 	var came := {origin: []}
@@ -46,15 +39,18 @@ static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: D
 			var n: Vector2i = cur + d
 			if not board.is_passable(n):
 				continue
-			if occupied_except(occ, n, self_id):
-				continue
+			var e = occ.get(n, null)
+			var blocker: bool = e != null and e.id != self_id
+			if blocker and e.owner != my_owner:
+				continue          # вражеский юнит не пропускает
 			if came.has(n):
 				continue
 			var path: Array = came[cur].duplicate()
 			path.append(n)
 			came[n] = path
 			dist[n] = dist[cur] + 1
-			result[n] = path
+			if not blocker:
+				result[n] = path  # на клетке союзника остановиться нельзя, только пройти
 			frontier.append(n)
 	return result
 
@@ -114,7 +110,7 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 							var c := origin + Vector2i(dx, dy)
 							var man := absi(dx) + absi(dy)
 							if man >= 1 and man <= Consts.TRAP_RADIUS and board.is_passable(c) \
-									and _at(occ, c) == null and not _grave_at(state, c):
+									and _at(occ, c) == null and not state.grave_at(c):
 								out.append(c)
 				1:  # Снайп: прямая 2..7, чистая линия
 					for d in Consts.DIRS4:
