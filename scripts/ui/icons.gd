@@ -39,6 +39,13 @@ const SKILL_FILES := {
 	Consts.Skill.SHARDS: "shards.png",
 	Consts.Skill.OVERLOAD: "overload.png",
 	Consts.Skill.SWAP: "swap.png",
+	Consts.Skill.PRECISE: "precise_shot.png",
+	Consts.Skill.HUNT_MARK: "hunter_mark.png",
+	Consts.Skill.RETREAT: "retreat.png",
+	Consts.Skill.NET: "net.png",
+	Consts.Skill.DEATHCROSS: "death_cross.png",
+	Consts.Skill.MINEFIELD: "minefield.png",
+	Consts.Skill.BLEED: "bleed.png",
 }
 
 
@@ -48,6 +55,11 @@ static func grave() -> Texture2D:
 
 static func cancel() -> Texture2D:
 	return tex(DIR + "cancel.png")
+
+
+# Иконка дебаффа по имени файла (нет файла -> null, не рисуется)
+static func effect(file: String) -> Texture2D:
+	return tex_opt(DIR + file)
 
 
 static func hero(hero_type: int) -> Texture2D:

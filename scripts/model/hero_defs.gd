@@ -49,7 +49,10 @@ static func basic_attack(hero_type: int) -> AbilityDef:
 static func pool(hero_type: int) -> Array:
 	match hero_type:
 		Consts.HeroType.HUNTER:
-			return [Consts.Skill.TRAP, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+			return [Consts.Skill.TRAP, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN,
+					Consts.Skill.PRECISE, Consts.Skill.HUNT_MARK, Consts.Skill.RETREAT,
+					Consts.Skill.NET, Consts.Skill.DEATHCROSS, Consts.Skill.MINEFIELD,
+					Consts.Skill.BLEED]
 		Consts.HeroType.FAIRY:
 			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH]
 		Consts.HeroType.CRYSTAL:
@@ -88,6 +91,27 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.SHOTGUN:
 			return AbilityDef.new("Дробь", Consts.SHOTGUN_MANA, Target.CELL,
 				"квадрат 2x2 по диагонали: %d урона, отбрасывание 1" % Consts.SHOTGUN_DMG)
+		Consts.Skill.PRECISE:
+			return AbilityDef.new("Меткий выстрел", Consts.PRECISE_MANA, Target.CELL,
+				"%d урона строго по клетке на дальности %d (прямое попадание, не перехватывается)" % [Consts.PRECISE_DMG, Consts.PRECISE_RANGE])
+		Consts.Skill.HUNT_MARK:
+			return AbilityDef.new("Охота началась", Consts.HUNT_MANA, Target.CELL,
+				"метка на враге: ×%d урона по нему от атак и скиллов Охотника до конца раунда" % Consts.HUNT_MULT)
+		Consts.Skill.RETREAT:
+			return AbilityDef.new("Отступление", Consts.RETREAT_MANA, Target.MOVE_PATH,
+				"если враг в соседней клетке — путь до %d клеток (относительный, как ход)" % Consts.RETREAT_RANGE)
+		Consts.Skill.NET:
+			return AbilityDef.new("Ловчая сеть", Consts.NET_MANA, Target.CELL,
+				"обездвиживает цель до конца раунда, без урона (дальность %d)" % Consts.NET_RANGE)
+		Consts.Skill.DEATHCROSS:
+			return AbilityDef.new("Крест смерти", Consts.DEATHCROSS_MANA, Target.NONE,
+				"%d урона первому врагу на каждой из 4 прямых линий" % Consts.DEATHCROSS_DMG)
+		Consts.Skill.MINEFIELD:
+			return AbilityDef.new("Минное поле", Consts.MINEFIELD_MANA, Target.CELL,
+				"ставит %d капкана в радиусе %d вокруг цели" % [Consts.MINEFIELD_COUNT, Consts.MINEFIELD_RADIUS])
+		Consts.Skill.BLEED:
+			return AbilityDef.new("Кровавый след", Consts.BLEED_MANA, Target.CELL,
+				"метка на враге в радиусе %d на %d хода: каждое перемещение цели -> %d урона" % [Consts.BLEED_RANGE, Consts.BLEED_TURNS, Consts.BLEED_DMG])
 		Consts.Skill.CANCEL:
 			return AbilityDef.new("Отмена", Consts.CANCEL_MANA, Target.CELL,
 				"щит себе или союзнику рядом: отменяет следующий эффект по нему")

@@ -39,6 +39,7 @@ var _floater_uid := 0
 var _font: Font
 var markers: Array = []
 var ghosts: Array = []
+var _effect_hotspots: Array = []   # [{rect:Rect2, eff:Dictionary}] — зоны иконок эффектов для тултипа
 
 const COL_BG := Color("1c2029")
 const COL_CELL := Color("2b313d")
@@ -256,6 +257,7 @@ func _draw() -> void:
 		return
 	if _font == null:
 		_font = ThemeDB.fallback_font
+	_effect_hotspots.clear()   # пересобираем зоны тултипов эффектов при каждой перерисовке
 	draw_rect(Rect2(Vector2.ZERO, custom_minimum_size), COL_BG)
 	# грид: идём по экранным клеткам, содержимое берём из реальной клетки
 	for sy in Consts.BOARD_H:
@@ -348,13 +350,79 @@ func _draw_unit(u: Dictionary) -> void:
 		draw_arc(ctr, CELL * 0.54, 0, TAU, 40, Color.WHITE, 4.0)   # выбранный герой — белым
 	if u.get("shield", false):
 		draw_arc(ctr, CELL * 0.50, 0, TAU, 32, Color(0.5, 0.9, 1.0), 2.5)
+	# HP слева-сверху, мана справа-сверху — на полупрозрачной тёмной подложке
+	_draw_stat(ctr, u.hp, true)
+	_draw_stat(ctr, u.mana, false)
+	_draw_debuffs(u, ctr)
+
+
+# Число статистики в верхнем углу клетки на полупрозрачной тёмной подложке (left=true — левый/HP).
+func _draw_stat(ctr: Vector2, value: int, left: bool) -> void:
+	var w := 26.0
+	var h := 20.0
+	var x: float = (ctr.x - CELL * 0.5 + 3) if left else (ctr.x + CELL * 0.5 - 3 - w)
+	var y := ctr.y - CELL * 0.5 + 2
+	draw_rect(Rect2(x, y, w, h), Color(0, 0, 0, 0.55))
+	draw_string(_font, Vector2(x, y + 16), str(value), HORIZONTAL_ALIGNMENT_CENTER, w, 18, Color(0.95, 0.98, 1.0))
+
+
+# Иконки активных эффектов рядком под героем. Рисуются только те, у кого есть арт.
+# Зоны иконок пишутся в _effect_hotspots для всплывающей подсказки (см. _get_tooltip).
+func _draw_debuffs(u: Dictionary, ctr: Vector2) -> void:
+	var shown: Array = []
+	for e in _active_effects(u):
+		var tex := Icons.effect(e.file)
+		if tex != null:
+			e["tex"] = tex
+			shown.append(e)
+	if shown.is_empty():
+		return
+	var isz := 20.0
+	var gap := 2.0
+	var total := shown.size() * isz + (shown.size() - 1) * gap
+	var x := ctr.x - total * 0.5
+	var y := ctr.y + CELL * 0.5 - isz - 2
+	for e in shown:
+		var r := Rect2(x, y, isz, isz)
+		draw_rect(Rect2(x - 1, y - 1, isz + 2, isz + 2), Color(0, 0, 0, 0.6))
+		draw_texture_rect(e.tex, r, false)
+		_effect_hotspots.append({"rect": r, "eff": e})
+		x += isz + gap
+
+
+# Метаданные активных эффектов юнита: файл иконки, название, длительность, описание.
+func _active_effects(u: Dictionary) -> Array:
+	var out: Array = []
 	if u.get("immobilized", false):
-		draw_arc(ctr, CELL * 0.50, 0, TAU, 32, Color(1.0, 0.5, 0.2), 2.5)
-	var info := "%d·%d" % [u.hp, u.mana]
-	var bg := Rect2(ctr.x - 26, ctr.y + CELL * 0.22, 52, 22)
-	draw_rect(bg, Color(0, 0, 0, 0.6))
-	draw_string(_font, Vector2(ctr.x - 26, ctr.y + CELL * 0.22 + 17), info,
-		HORIZONTAL_ALIGNMENT_CENTER, 52, 20, Color(0.95, 0.98, 1.0))
+		out.append({"file": "effect_immobilized.png", "name": "Обездвижен",
+			"dur": "до конца раунда", "desc": "Не может ходить и применять скиллы-перемещения"})
+	if u.get("hunted", false):
+		out.append({"file": "effect_hunt.png", "name": "Охота началась",
+			"dur": "этот раунд", "desc": "Урон Охотника по цели ×%d" % Consts.HUNT_MULT})
+	var bt: int = u.get("bleed", 0)
+	if bt > 0:
+		out.append({"file": "effect_blood_path.png", "name": "Кровавый след",
+			"dur": _plural_turns(bt), "desc": "Каждое перемещение наносит %d урона" % Consts.BLEED_DMG})
+	return out
+
+
+# Всплывающая подсказка при наведении на иконку эффекта: название, длительность, описание.
+func _get_tooltip(at_position: Vector2) -> String:
+	for h in _effect_hotspots:
+		if (h.rect as Rect2).has_point(at_position):
+			var e: Dictionary = h.eff
+			return "%s\nДлительность: %s\n%s" % [e.name, e.dur, e.desc]
+	return ""
+
+
+func _plural_turns(n: int) -> String:
+	var m10 := n % 10
+	var m100 := n % 100
+	if m10 == 1 and m100 != 11:
+		return "%d ход" % n
+	if m10 >= 2 and m10 <= 4 and (m100 < 10 or m100 >= 20):
+		return "%d хода" % n
+	return "%d ходов" % n
 
 
 func _draw_icon(ctr: Vector2, hero_type: int, alpha: float) -> void:

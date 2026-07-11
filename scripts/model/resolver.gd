@@ -52,39 +52,59 @@ func _do_move(state: MatchState, unit: Unit, path: Array, events: Array) -> void
 	if unit.immobilized:
 		_push(events, state, Consts.EventType.FIZZLE, "%s обездвижен — ход отменён" % unit.full_name())
 		return
+	_walk_path(state, unit, path, events)
+
+
+# Проход по относительному пути шагов-смещений (общий для Хода и Отступления).
+func _walk_path(state: MatchState, unit: Unit, path: Array, events: Array) -> void:
+	var start := unit.cell
 	var cur := unit.cell
 	for i in path.size():
 		var next: Vector2i = cur + path[i]
 		if not state.board.is_passable(next):
 			_push(events, state, Consts.EventType.INFO,
 				"%s: ход заблокирован на (%d,%d)" % [unit.full_name(), next.x, next.y])
-			return
+			break
 		var occupant := state.unit_at(next)
 		if occupant != null and occupant.id != unit.id:
 			if occupant.owner != unit.owner:
 				_push(events, state, Consts.EventType.INFO,
 					"%s: ход заблокирован на (%d,%d)" % [unit.full_name(), next.x, next.y])
-				return
+				break
 			if i == path.size() - 1:
 				_push(events, state, Consts.EventType.INFO,
 					"%s: на (%d,%d) стоит союзник — негде встать" % [unit.full_name(), next.x, next.y])
-				return
+				break
 			cur = next   # проходим сквозь союзника, клетку не занимаем
 			continue
 		cur = next
+		# шаги хода не тикают кровавый след по отдельности — тик один раз за всё перемещение (ниже)
 		_enter(state, unit, cur, events, unit.owner, Consts.EventType.MOVE,
-			"%s -> (%d,%d)" % [unit.full_name(), cur.x, cur.y])
+			"%s -> (%d,%d)" % [unit.full_name(), cur.x, cur.y], false)
 		if not unit.alive:
-			return
+			return   # погиб в пути (капкан) — тик кровотечения уже неактуален
 		if unit.immobilized:   # наступил на капкан посреди пути — застрял здесь, дальше не идёт
-			return
+			break
+	# Кровавый след: одно перемещение-действие = один тик, если юнит реально сдвинулся
+	if unit.cell != start:
+		_bleed_tick(state, unit, events)
 
 
 # Перемещает юнита на клетку, логирует и проверяет капканы/засады
-func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String) -> void:
+# tick_bleed=false для отдельных шагов многоклеточного хода — кровавый след тикает раз за
+# ВСЁ перемещение-действие (см. _walk_path), а не за каждую клетку.
+func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String, tick_bleed: bool = true) -> void:
 	unit.cell = cell
 	_push(events, state, ev_type, text, {"actor": unit.id, "to_cell": cell})
 	_check_triggers(state, unit, cell, events, src_player)
+	if tick_bleed:
+		_bleed_tick(state, unit, events)
+
+
+# Кровавый след: одно перемещение-действие помеченного юнита наносит ему BLEED_DMG
+func _bleed_tick(state: MatchState, unit: Unit, events: Array) -> void:
+	if unit.alive and unit.bleed_turns > 0:
+		_deal_damage(state, unit, Consts.BLEED_DMG, unit.bleed_owner, events, "кровотечение")
 
 
 func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Array, _src_player: int) -> void:
@@ -143,6 +163,9 @@ func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, e
 func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int, events: Array, label: String,
 		src_unit: Unit = null, retaliate: bool = true) -> void:
 	var dmg := amount
+	# «Охота началась»: урон Охотника по помеченной цели умножается
+	if target.hunted and src_unit != null and src_unit.hero_type == Consts.HeroType.HUNTER:
+		dmg *= Consts.HUNT_MULT
 	if target.hero_type == Consts.HeroType.CRYSTAL:
 		dmg = max(0, dmg - Consts.CRYSTAL_PASSIVE_REDUCTION)
 	if dmg <= 0:
@@ -261,6 +284,13 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.TRAP: _sk_trap(state, unit, et, events)
 		Consts.Skill.SNIPE: _sk_snipe(state, unit, et, events)
 		Consts.Skill.SHOTGUN: _sk_shotgun(state, unit, et, events)
+		Consts.Skill.PRECISE: _sk_precise(state, unit, et, events)
+		Consts.Skill.HUNT_MARK: _sk_hunt(state, unit, et, events)
+		Consts.Skill.RETREAT: _sk_retreat(state, unit, order, events)
+		Consts.Skill.NET: _sk_net(state, unit, et, events)
+		Consts.Skill.DEATHCROSS: _sk_deathcross(state, unit, events)
+		Consts.Skill.MINEFIELD: _sk_minefield(state, unit, et, events)
+		Consts.Skill.BLEED: _sk_bleed(state, unit, et, events)
 		Consts.Skill.CANCEL: _sk_cancel(state, unit, et, events)
 		Consts.Skill.HEAL: _sk_heal(state, unit, et, events)
 		Consts.Skill.FLASH: _sk_flash(state, unit, events)
@@ -316,6 +346,95 @@ func _sk_shotgun(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> 
 		_deal_damage(state, v, Consts.SHOTGUN_DMG, unit.owner, events, "дробь", unit)
 		if v.alive:
 			_knockback(state, v, _dir_sign(v.cell - unit.cell), unit.owner, events)
+
+
+# Меткий выстрел — прямое попадание строго по клетке на дальности PRECISE_RANGE (не перехватывается блокером)
+func _sk_precise(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _manhattan(unit.cell, et) != Consts.PRECISE_RANGE:
+		_push(events, state, Consts.EventType.FIZZLE, "Меткий выстрел: цель не на дальности %d" % Consts.PRECISE_RANGE)
+		return
+	var v := state.unit_at(et)
+	if v == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Меткий выстрел в пустоту (%d,%d)" % [et.x, et.y])
+		return
+	_deal_damage(state, v, Consts.PRECISE_DMG, unit.owner, events, "меткий выстрел", unit)
+
+
+# Охота началась — метка на враге: урон Охотника по нему умножается до конца раунда
+func _sk_hunt(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Охота началась: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	v.hunted = true
+	_push(events, state, Consts.EventType.HUNT_MARKED,
+		"%s начинает охоту на %s (×%d урона)" % [unit.full_name(), v.full_name(), Consts.HUNT_MULT])
+
+
+# Отступление — если рядом враг, пройти относительный путь (как ход). Обездвиживание уже
+# отсекается в _do_ability (RETREAT в _skill_moves_caster), поэтому здесь только предусловие «враг рядом».
+func _sk_retreat(state: MatchState, unit: Unit, order: Order, events: Array) -> void:
+	if not _enemy_adjacent(state, unit):
+		_push(events, state, Consts.EventType.FIZZLE, "Отступление: рядом нет врага")
+		return
+	_walk_path(state, unit, order.path, events)
+
+
+# Ловчая сеть — мгновенно обездвиживает вражескую цель до конца раунда, без урона
+func _sk_net(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Ловчая сеть: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	v.immobilized = true
+	_push(events, state, Consts.EventType.IMMOBILIZE, "%s опутан сетью — обездвижен" % v.full_name())
+
+
+# Крест смерти — DEATHCROSS_DMG первому ВРАГУ на каждой из 4 ортогональных линий (союзник блокирует луч)
+func _sk_deathcross(state: MatchState, unit: Unit, events: Array) -> void:
+	var hit := false
+	for d in Consts.DIRS4:
+		var v := _first_unit_on_ray(state, unit.cell, d)
+		if v != null and v.owner != unit.owner:
+			hit = true
+			_deal_damage(state, v, Consts.DEATHCROSS_DMG, unit.owner, events, "крест смерти", unit)
+	if not hit:
+		_push(events, state, Consts.EventType.FIZZLE, "Крест смерти: на линиях нет врагов")
+
+
+# Минное поле — ставит MINEFIELD_COUNT капканов в радиусе MINEFIELD_RADIUS вокруг цели за один слот
+func _sk_minefield(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var placed := 0
+	for dy in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
+		for dx in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
+			if placed >= Consts.MINEFIELD_COUNT:
+				break
+			if absi(dx) + absi(dy) > Consts.MINEFIELD_RADIUS:
+				continue
+			var c := et + Vector2i(dx, dy)
+			if not state.board.is_passable(c) or state.unit_at(c) != null \
+					or state.grave_at(c) or _trap_at(state, c):
+				continue
+			state.traps.append({
+				"cell": c, "owner_player": unit.owner, "owner_id": unit.id,
+				"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
+			})
+			placed += 1
+			_push(events, state, Consts.EventType.TRAP_PLACED, "Мина на (%d,%d)" % [c.x, c.y])
+	if placed == 0:
+		_push(events, state, Consts.EventType.FIZZLE, "Минное поле: некуда ставить капканы")
+
+
+# Кровавый след — метка на враге в радиусе BLEED_RANGE: каждое его перемещение будет бить (см. _enter)
+func _sk_bleed(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Кровавый след: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	v.bleed_turns = Consts.BLEED_TURNS
+	v.bleed_owner = unit.owner
+	_push(events, state, Consts.EventType.BLEED_MARKED,
+		"%s оставляет кровавый след на %s (%d хода)" % [unit.full_name(), v.full_name(), Consts.BLEED_TURNS])
 
 
 # Отмена — щит себе или соседнему союзнику
@@ -486,6 +605,9 @@ func _sk_swap(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 	_push(events, state, Consts.EventType.MOVE,
 		"%s перемещён на (%d,%d)" % [other.full_name(), other.cell.x, other.cell.y],
 		{"actor": other.id, "to_cell": other.cell})
+	# Своп — перемещение обоих: кровавый след тикает каждому помеченному участнику
+	_bleed_tick(state, unit, events)
+	_bleed_tick(state, other, events)
 
 
 # Соседний враг целит в клетку юнита со взведёнными рефлексами: тот отступает на 1 и
@@ -528,7 +650,8 @@ func _dir_sign(delta: Vector2i) -> Vector2i:
 
 # Скиллы, чей эффект перемещает самого кастера (значит, блокируются обездвиживанием)
 func _skill_moves_caster(skill: int) -> bool:
-	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT, Consts.Skill.SWAP]
+	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT,
+			Consts.Skill.SWAP, Consts.Skill.RETREAT]
 
 
 # Первый живой юнит на прямой от from к target (стена/край -> пуля погашена, null).
@@ -558,6 +681,21 @@ func _first_unit_on_ray(state: MatchState, from: Vector2i, step: Vector2i) -> Un
 			return u
 		cur += step
 	return null
+
+
+func _enemy_adjacent(state: MatchState, unit: Unit) -> bool:
+	for d in Consts.DIRS8:
+		var u := state.unit_at(unit.cell + d)
+		if u != null and u.owner != unit.owner:
+			return true
+	return false
+
+
+func _trap_at(state: MatchState, cell: Vector2i) -> bool:
+	for t in state.traps:
+		if t.cell == cell:
+			return true
+	return false
 
 
 func _manhattan(a: Vector2i, b: Vector2i) -> int:

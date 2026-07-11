@@ -98,7 +98,13 @@ func begin_round() -> Array:
 		u.reflexes_armed = false
 		u.hardened = false
 		u.shards_armed = false
+		u.hunted = false
 		u.immobilized = false   # капкан замораживает лишь до конца своего раунда — новый раунд свободен
+		# Кровавый след держится через раунды: убывает, а не сбрасывается
+		if u.bleed_turns > 0:
+			u.bleed_turns -= 1
+			if u.bleed_turns == 0:
+				u.bleed_owner = -1
 		if u.alive and round_num > 1:
 			u.mana += 1
 	# Респ мёртвых
@@ -136,6 +142,8 @@ func _try_respawn(u: Unit, events: Array) -> void:
 	u.mana = Consts.START_MANA   # накопленный до смерти банк не переживает респ — это и есть цена смерти
 	u.cell = cell
 	u.dead_timer = 0
+	u.bleed_turns = 0            # кровотечение не переживает смерть
+	u.bleed_owner = -1
 	events.append(_ev(Consts.EventType.RESPAWN,
 		"%s воскрешается на (%d,%d)" % [u.full_name(), cell.x, cell.y]))
 

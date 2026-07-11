@@ -258,9 +258,12 @@ func _arm(action: int) -> void:
 
 func _commit(cell: Vector2i) -> void:
 	var path: Array = []
+	var origin := _origin_for(_pending_hero, _active)
 	if _pending_action == Consts.Action.MOVE:
-		var origin := _origin_for(_pending_hero, _active)
 		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy()).get(cell, [])
+	elif _pending_skill() == Consts.Skill.RETREAT:
+		# Отступление — путь, как ход, но дальностью RETREAT_RANGE
+		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), Consts.RETREAT_RANGE).get(cell, [])
 	_write_slot(_active, _pending_hero, _pending_action, cell, path)
 	_advance_active()
 	_clear_pending()
@@ -449,6 +452,21 @@ func _needs_target(unit: Unit, action: int) -> bool:
 	return HeroDefs.for_action(unit.hero_type, action, unit.skills).target != HeroDefs.Target.NONE
 
 
+# Скилл за текущим нацеливаемым действием (или за действием в слоте i)
+func _pending_skill() -> int:
+	if _pending_hero < 0:
+		return -1
+	var u := state.get_unit(_pending_hero)
+	return HeroDefs.skill_of_action(u.hero_type, _pending_action, u.skills)
+
+
+func _slot_skill(i: int) -> int:
+	if slot_hero[i] < 0:
+		return -1
+	var u := state.get_unit(slot_hero[i])
+	return HeroDefs.skill_of_action(u.hero_type, slot_action[i], u.skills)
+
+
 func _planned_final(hero_id: int) -> Vector2i:
 	return _origin_for(hero_id, Consts.ORDER_SLOTS)
 
@@ -498,6 +516,8 @@ func _origin_for(hero_id: int, upto_slot: int) -> Vector2i:
 				pos = slot_target[j]
 			Consts.Skill.ONSLAUGHT:   # занимает клетку отброшенного врага
 				pos = slot_target[j]
+			Consts.Skill.RETREAT:     # уходит в конец пути (целевая клетка)
+				pos = slot_target[j]
 	return pos
 
 
@@ -543,6 +563,16 @@ func _on_done() -> void:
 				steps.append(c - prev)
 				prev = c
 			orders.append(Order.make_move(slot_hero[i], steps))
+		elif _slot_skill(i) == Consts.Skill.RETREAT:
+			# Отступление — способность, несущая относительный путь (как ход)
+			var steps: Array[Vector2i] = []
+			var prev: Vector2i = _origin_for(slot_hero[i], i)
+			for c in slot_path[i]:
+				steps.append(c - prev)
+				prev = c
+			var o := Order.new(slot_hero[i], slot_action[i])
+			o.path = steps
+			orders.append(o)
 		else:
 			# нон-таргет: смещение цели от планируемой позиции; в резолве применится от ТЕКУЩЕЙ
 			var has_t: bool = slot_target[i].x >= 0

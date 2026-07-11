@@ -17,6 +17,8 @@ enum Skill {
 	JUMP, AMBUSH, DASH,                   # Кристалкайнд — базовые
 	ONSLAUGHT, SPIKES, REFLEXES,          # Кристалкайнд — расширение пула
 	HARDENING, SHARDS, OVERLOAD, SWAP,    # Кристалкайнд — новые
+	PRECISE, HUNT_MARK, RETREAT, NET, DEATHCROSS, MINEFIELD,   # Охотник — новые
+	BLEED,                                                     # Охотник — кровавый след
 }
 
 const SKILLS_PER_HERO := 3
@@ -26,7 +28,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 5
+const PROTOCOL_VERSION := 7
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -40,6 +42,7 @@ enum EventType {
 	COLLISION, KNOCKBACK, IMMOBILIZE, FIZZLE, MANA, SCORE,
 	REFLEX_ARMED, REFLEX_DODGE,
 	HARDEN_ARMED, HARDEN_BLOCK, SHARDS_ARMED,
+	HUNT_MARKED, BLEED_MARKED,
 }
 
 # --- Поле ---
@@ -85,6 +88,43 @@ const SNIPE_MAX := 7
 const SHOTGUN_MANA := 4
 const SHOTGUN_DMG := 5
 const SHOTGUN_KNOCKBACK := 1
+
+# --- Охотник: новые скиллы ---
+# Меткий выстрел: прямое попадание строго по клетке на дальности PRECISE_RANGE (не перехватывается)
+const PRECISE_MANA := 1
+const PRECISE_DMG := 3
+const PRECISE_RANGE := 2
+
+# Охота началась: метка на враге, ×HUNT_MULT урона по нему от атак/скиллов Охотника до конца раунда
+const HUNT_MANA := 2
+const HUNT_RANGE := 4
+const HUNT_MULT := 2
+
+# Отступление: если враг в соседней клетке — путь до RETREAT_RANGE клеток (относительный, как ход)
+const RETREAT_MANA := 1
+const RETREAT_RANGE := 3
+
+# Ловчая сеть: мгновенно обездвиживает цель до конца раунда, без урона
+const NET_MANA := 2
+const NET_RANGE := 3
+
+# Крест смерти: DEATHCROSS_DMG первому ВРАГУ на каждой из 4 ортогональных линий
+const DEATHCROSS_MANA := 4
+const DEATHCROSS_DMG := 5
+
+# Минное поле: ставит MINEFIELD_COUNT капканов в радиусе MINEFIELD_RADIUS вокруг цели за один слот;
+# сам центр можно поставить в пределах MINEFIELD_RANGE от Охотника
+const MINEFIELD_MANA := 4
+const MINEFIELD_COUNT := 3
+const MINEFIELD_RADIUS := 2
+const MINEFIELD_RANGE := 3
+
+# Кровавый след: враг в радиусе BLEED_RANGE получает эффект на BLEED_TURNS ходов;
+# каждое перемещение (вход в клетку) наносит ему BLEED_DMG
+const BLEED_MANA := 2
+const BLEED_DMG := 2
+const BLEED_TURNS := 3
+const BLEED_RANGE := 2
 
 const CANCEL_MANA := 2
 

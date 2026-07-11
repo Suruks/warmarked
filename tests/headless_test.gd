@@ -49,6 +49,19 @@ func _initialize() -> void:
 	test_shards_retaliate_on_attacker()
 	test_overload_spends_all_mana()
 	test_swap_exchanges_positions()
+	test_precise_hits_at_exact_range()
+	test_precise_fizzles_off_range()
+	test_hunt_mark_doubles_hunter_damage()
+	test_retreat_moves_when_enemy_adjacent()
+	test_retreat_fizzles_without_enemy()
+	test_net_immobilizes_target()
+	test_deathcross_hits_first_enemy_per_line()
+	test_minefield_places_traps()
+	test_bleed_marks_and_ticks_per_action()
+	test_bleed_ticks_once_per_move_action()
+	test_bleed_ticks_on_swap()
+	test_bleed_no_tick_without_move()
+	test_bleed_expires_after_turns()
 	test_reflexes_dodges_and_gains_mana()
 	test_reflexes_blocked_when_cornered()
 	test_skill_slot_follows_loadout()
@@ -804,6 +817,190 @@ func test_swap_exchanges_positions() -> void:
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
 	_check(c.cell == Vector2i(3, 3), "обмен: кристалл встал на клетку врага [%s]" % c.cell)
 	_check(other.cell == Vector2i(3, 4), "обмен: враг встал на клетку кристалла [%s]" % other.cell)
+
+
+# ---------------------------------------------------------------- новые скиллы Охотника
+
+func test_precise_hits_at_exact_range() -> void:
+	# Меткий выстрел: прямое попадание строго на дальности 2, сквозь блокера на линии
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.PRECISE)   # A hunter
+	h.mana = Consts.PRECISE_MANA
+	var blocker := _place(s, 1, Vector2i(3, 3))                 # A fairy на линии (снайп бы застрял)
+	var v := _place(s, 3, Vector2i(3, 2), 10)                   # B hunter на дальности 2
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 10 - Consts.PRECISE_DMG, "меткий: попал на дальности 2 сквозь блокера [%d]" % v.hp)
+	_check(blocker.hp == Consts.FAIRY_HP, "меткий: блокер на линии не задет [%d]" % blocker.hp)
+
+
+func test_precise_fizzles_off_range() -> void:
+	# Меткий выстрел строго дальность 2: цель в упор (дистанция 1) не поражается
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.PRECISE)
+	h.mana = Consts.PRECISE_MANA
+	var v := _place(s, 3, Vector2i(3, 3), 10)                   # дистанция 1
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 10, "меткий: цель в упор не поражена [%d]" % v.hp)
+
+
+func test_hunt_mark_doubles_hunter_damage() -> void:
+	# Охота началась: помеченная цель получает ×HUNT_MULT урона от атаки Охотника
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)  # A hunter
+	h.mana = Consts.HUNT_MANA
+	var v := _place(s, 3, Vector2i(3, 2), 10)                    # B hunter на дальности 2
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # метка
+	oa[1] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))    # выстрел по помеченному
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	var expect := 10 - Consts.HUNTER_ATK_DMG * Consts.HUNT_MULT
+	_check(v.hp == expect, "охота: удвоенный урон Охотника, HP %d [%d]" % [expect, v.hp])
+
+
+func test_retreat_moves_when_enemy_adjacent() -> void:
+	# Отступление: враг рядом → уходит по относительному пути
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.RETREAT)
+	h.mana = Consts.RETREAT_MANA
+	_place(s, 3, Vector2i(4, 4))                                 # B hunter — сосед справа
+	var o := Order.new(0, Consts.Action.ABILITY1)
+	o.path = [Vector2i(-1, 0), Vector2i(-1, 0)] as Array[Vector2i]  # влево дважды -> (1,4)
+	var oa := _slots()
+	oa[0] = o
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(h.cell == Vector2i(1, 4), "отступление: ушёл по пути на (1,4) [%s]" % h.cell)
+
+
+func test_retreat_fizzles_without_enemy() -> void:
+	# Отступление: рядом нет врага → физзл, герой на месте
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.RETREAT)
+	h.mana = Consts.RETREAT_MANA
+	_place(s, 3, Vector2i(6, 0))                                 # враг далеко
+	var o := Order.new(0, Consts.Action.ABILITY1)
+	o.path = [Vector2i(-1, 0)] as Array[Vector2i]
+	var oa := _slots()
+	oa[0] = o
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(h.cell == Vector2i(3, 4), "отступление: без врага рядом не сдвинулся [%s]" % h.cell)
+
+
+func test_net_immobilizes_target() -> void:
+	# Ловчая сеть: цель обездвижена, её ход в этом раунде отменяется
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.NET)
+	h.mana = Consts.NET_MANA
+	var foe := _place(s, 3, Vector2i(3, 2))                      # B hunter, дальность 2
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))    # сеть
+	var ob := _slots()
+	ob[0] = Order.make_move(3, [Vector2i(0, -1)] as Array[Vector2i])  # попытка хода
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(foe.immobilized, "сеть: цель обездвижена")
+	_check(foe.cell == Vector2i(3, 2), "сеть: обездвиженный не сдвинулся [%s]" % foe.cell)
+
+
+func test_deathcross_hits_first_enemy_per_line() -> void:
+	# Крест смерти: первый ВРАГ на каждой из 4 прямых; союзник блокирует свою линию
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 3), Consts.Skill.DEATHCROSS)  # A hunter (клетки вокруг чисты от стен)
+	h.mana = Consts.DEATHCROSS_MANA
+	var e_up := _place(s, 3, Vector2i(3, 2), 10)                  # B hunter — линия вверх
+	var e_right := _place(s, 4, Vector2i(4, 3), 12)             # B fairy — линия вправо
+	var ally_left := _place(s, 1, Vector2i(2, 3))              # A fairy — линия влево (блокирует)
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1)                # без цели
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(e_up.hp == 10 - Consts.DEATHCROSS_DMG, "крест: враг вверх задет [%d]" % e_up.hp)
+	_check(e_right.hp == 12 - Consts.DEATHCROSS_DMG, "крест: враг вправо задет [%d]" % e_right.hp)
+	_check(ally_left.hp == Consts.FAIRY_HP, "крест: союзник (влево) не задет [%d]" % ally_left.hp)
+
+
+func test_minefield_places_traps() -> void:
+	# Минное поле: за один слот ставит MINEFIELD_COUNT капканов вокруг цели
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.MINEFIELD)
+	h.mana = Consts.MINEFIELD_MANA
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # центр в радиусе
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(s.traps.size() == Consts.MINEFIELD_COUNT,
+		"минное поле: поставлено %d капканов [%d]" % [Consts.MINEFIELD_COUNT, s.traps.size()])
+
+
+func test_bleed_marks_and_ticks_per_action() -> void:
+	# Кровавый след: метка на враге в радиусе 2; ход на 2 клетки = ОДНО действие = ОДИН тик
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.BLEED)   # A hunter
+	h.mana = Consts.BLEED_MANA
+	var foe := _place(s, 3, Vector2i(3, 2), 10)               # B hunter на дальности 2
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))       # метка
+	var ob := _slots()
+	ob[1] = Order.make_move(3, [Vector2i(-1, 0), Vector2i(-1, 0)] as Array[Vector2i])  # ход на 2 клетки
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(foe.bleed_turns == Consts.BLEED_TURNS, "кровавый след: метка на %d хода [%d]" % [Consts.BLEED_TURNS, foe.bleed_turns])
+	_check(foe.cell == Vector2i(1, 2), "кровавый след: цель переместилась [%s]" % foe.cell)
+	_check(foe.hp == 10 - Consts.BLEED_DMG, "кровавый след: ход на 2 клетки -> 1 тик, HP %d [%d]" % [10 - Consts.BLEED_DMG, foe.hp])
+
+
+func test_bleed_ticks_once_per_move_action() -> void:
+	# Два отдельных хода-действия за раунд -> два тика (подтверждает «за действие», а не за клетку)
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.BLEED)
+	h.mana = Consts.BLEED_MANA
+	var foe := _place(s, 3, Vector2i(3, 2), 10)
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))       # метка (слот 0)
+	var ob := _slots()
+	ob[0] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])    # действие 1
+	ob[1] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])    # действие 2
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(foe.cell == Vector2i(1, 2), "кровавый след: 2 хода -> сдвинулся на 2 [%s]" % foe.cell)
+	_check(foe.hp == 10 - 2 * Consts.BLEED_DMG, "кровавый след: 2 действия -> 2 тика, HP %d [%d]" % [10 - 2 * Consts.BLEED_DMG, foe.hp])
+
+
+func test_bleed_ticks_on_swap() -> void:
+	# Обмен местами — тоже перемещение: свопнутый помеченный юнит получает тик
+	var s := _fresh()
+	var c := _arm(s, 2, Vector2i(3, 4), Consts.Skill.SWAP)    # A crystal
+	c.mana = Consts.SWAP_MANA
+	var foe := _place(s, 3, Vector2i(3, 3), 10)               # B hunter — сосед
+	foe.bleed_turns = Consts.BLEED_TURNS                      # помечен заранее
+	foe.bleed_owner = Consts.Player.A
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 3))   # своп с врагом
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(foe.cell == Vector2i(3, 4), "своп: помеченный переместился [%s]" % foe.cell)
+	_check(foe.hp == 10 - Consts.BLEED_DMG, "своп: кровавый след тикнул, HP %d [%d]" % [10 - Consts.BLEED_DMG, foe.hp])
+
+
+func test_bleed_no_tick_without_move() -> void:
+	# Без перемещения кровавый след урона не наносит (только сама метка)
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.BLEED)
+	h.mana = Consts.BLEED_MANA
+	var foe := _place(s, 3, Vector2i(3, 2), 10)
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(foe.hp == 10, "кровавый след: без движения урона нет [%d]" % foe.hp)
+
+
+func test_bleed_expires_after_turns() -> void:
+	# Эффект держится через раунды и истекает через BLEED_TURNS ходов
+	var s := _fresh()
+	var foe := _place(s, 3, Vector2i(3, 2), 10)
+	foe.bleed_turns = Consts.BLEED_TURNS
+	foe.bleed_owner = Consts.Player.A
+	for i in Consts.BLEED_TURNS:
+		s.begin_round()
+	_check(foe.bleed_turns == 0, "кровавый след: истёк после %d ходов [%d]" % [Consts.BLEED_TURNS, foe.bleed_turns])
+	_check(foe.bleed_owner == -1, "кровавый след: владелец сброшен по истечении")
 
 
 func test_reflexes_dodges_and_gains_mana() -> void:

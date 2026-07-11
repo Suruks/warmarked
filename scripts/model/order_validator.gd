@@ -50,7 +50,12 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	var used: int = spent.get(o.hero_id, 0)
 	if used + def.mana > u.mana:
 		return false
-	if def.target != HeroDefs.Target.NONE and not _target_legal(u, o.action, _offset(u, o)):
+	# Отступление несёт путь (как ход), а не одиночное смещение — валидируем шаги
+	var skill := HeroDefs.skill_of_action(u.hero_type, o.action, u.skills)
+	if skill == Consts.Skill.RETREAT:
+		if not _retreat_path_legal(o.path):
+			return false
+	elif def.target != HeroDefs.Target.NONE and not _target_legal(u, o.action, _offset(u, o)):
 		return false
 
 	seen[key] = true
@@ -61,6 +66,16 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 # Ход: последовательность единичных орто-шагов, не длиннее MOVE_RANGE.
 static func _move_legal(path: Array) -> bool:
 	if path.size() > Consts.MOVE_RANGE:
+		return false
+	for d in path:
+		if typeof(d) != TYPE_VECTOR2I or not (d in Consts.DIRS4):
+			return false
+	return true
+
+
+# Отступление: непустой путь орто-шагов, не длиннее RETREAT_RANGE.
+static func _retreat_path_legal(path: Array) -> bool:
+	if path.size() < 1 or path.size() > Consts.RETREAT_RANGE:
 		return false
 	for d in path:
 		if typeof(d) != TYPE_VECTOR2I or not (d in Consts.DIRS4):
@@ -106,6 +121,16 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _man(off) == 1
 		Consts.Skill.SWAP:        # соседний (8 сторон)
 			return _cheb(off) == 1
+		Consts.Skill.PRECISE:     # строго дальность PRECISE_RANGE
+			return _man(off) == Consts.PRECISE_RANGE
+		Consts.Skill.HUNT_MARK:   # в радиусе HUNT_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.HUNT_RANGE
+		Consts.Skill.NET:         # в радиусе NET_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.NET_RANGE
+		Consts.Skill.MINEFIELD:   # центр в радиусе MINEFIELD_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.MINEFIELD_RANGE
+		Consts.Skill.BLEED:       # враг в радиусе BLEED_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.BLEED_RANGE
 	return false
 
 

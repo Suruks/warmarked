@@ -21,7 +21,7 @@ static func _at(occ: Dictionary, cell: Vector2i):
 
 # Достижимые ходом клетки (орто, <= MOVE_RANGE) и путь к каждой. cell -> Array[Vector2i] путь.
 # Союзник — проходим (можно пройти сквозь), но НЕ пункт назначения. Враг — глухая стена.
-static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: Dictionary = {}) -> Dictionary:
+static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: Dictionary = {}, p_range: int = Consts.MOVE_RANGE) -> Dictionary:
 	if occ.is_empty():
 		occ = build_occupancy(state)
 	var board := state.board
@@ -33,7 +33,7 @@ static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: D
 	var dist := {origin: 0}
 	while frontier.size() > 0:
 		var cur: Vector2i = frontier.pop_front()
-		if dist[cur] >= Consts.MOVE_RANGE:
+		if dist[cur] >= p_range:
 			continue
 		for d in Consts.DIRS4:
 			var n: Vector2i = cur + d
@@ -73,6 +73,27 @@ static func candidates(state: MatchState, unit: Unit, action: int, origin: Vecto
 		Consts.Action.ABILITY3:
 			return _ability_cells(state, unit, 2, origin, occ)
 	return [] as Array[Vector2i]
+
+
+# Все проходимые клетки в кольце манхэттена [min_r, max_r] от origin — в out.
+static func _ring(board: Board, origin: Vector2i, min_r: int, max_r: int, out: Array[Vector2i]) -> void:
+	for dy in range(-max_r, max_r + 1):
+		for dx in range(-max_r, max_r + 1):
+			var m := absi(dx) + absi(dy)
+			if m < min_r or m > max_r:
+				continue
+			var c := origin + Vector2i(dx, dy)
+			if board.is_passable(c):
+				out.append(c)
+
+
+# Есть ли враг (по occ — плановая занятость) в одной из 8 соседних клеток origin.
+static func _enemy_adjacent(origin: Vector2i, owner: int, occ: Dictionary) -> bool:
+	for d in Consts.DIRS8:
+		var e = _at(occ, origin + d)
+		if e != null and e.owner != owner:
+			return true
+	return false
 
 
 static func _basic_attack_cells(state: MatchState, unit: Unit, origin: Vector2i) -> Array[Vector2i]:
@@ -155,6 +176,26 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 			for d in Consts.DIRS4:
 				var c: Vector2i = origin + d
 				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.PRECISE:  # строго дальность PRECISE_RANGE (манхэттен)
+			for dy in range(-Consts.PRECISE_RANGE, Consts.PRECISE_RANGE + 1):
+				for dx in range(-Consts.PRECISE_RANGE, Consts.PRECISE_RANGE + 1):
+					if absi(dx) + absi(dy) != Consts.PRECISE_RANGE:
+						continue
+					var c := origin + Vector2i(dx, dy)
+					if board.is_passable(c):
+						out.append(c)
+		Consts.Skill.HUNT_MARK:  # враг в радиусе HUNT_RANGE (манхэттен)
+			_ring(board, origin, 1, Consts.HUNT_RANGE, out)
+		Consts.Skill.NET:  # цель в радиусе NET_RANGE (манхэттен)
+			_ring(board, origin, 1, Consts.NET_RANGE, out)
+		Consts.Skill.BLEED:  # враг в радиусе BLEED_RANGE (манхэттен)
+			_ring(board, origin, 1, Consts.BLEED_RANGE, out)
+		Consts.Skill.MINEFIELD:  # центр поля в радиусе MINEFIELD_RANGE (манхэттен)
+			_ring(board, origin, 1, Consts.MINEFIELD_RANGE, out)
+		Consts.Skill.RETREAT:  # путь до RETREAT_RANGE, только если рядом есть враг
+			if _enemy_adjacent(origin, unit.owner, occ):
+				for c in move_paths(state, origin, unit.id, occ, Consts.RETREAT_RANGE).keys():
 					out.append(c)
 		Consts.Skill.OVERLOAD:  # любой орто-сосед (как Натиск — целим вслепую)
 			for d in Consts.DIRS4:

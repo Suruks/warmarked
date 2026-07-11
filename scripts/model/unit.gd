@@ -32,6 +32,14 @@ var hardened: bool = false
 # Осколки Кристалкайнда. Пока взведено, враг, нанёсший урон, получает ответку. Сбрасывается в начале раунда.
 var shards_armed: bool = false
 
+# Метка «Охота началась» Охотника. Пока взведена, урон Охотника по этому юниту умножается. Сбрасывается в начале раунда.
+var hunted: bool = false
+
+# «Кровавый след» Охотника. Пока bleed_turns > 0, каждое перемещение юнита наносит ему урон.
+# В ОТЛИЧИЕ от стоек — держится через раунды: убывает в начале раунда, а не сбрасывается.
+var bleed_turns: int = 0
+var bleed_owner: int = -1   # чей эффект (кому идёт килл-очко за смерть от кровотечения)
+
 # Кит: ровно SKILLS_PER_HERO id из Consts.Skill, слоты ABILITY1..3 по возрастанию маны
 var skills: Array = []
 
@@ -75,4 +83,6 @@ func snapshot() -> Dictionary:
 		"reflex": reflexes_armed,
 		"hardened": hardened,
 		"shards": shards_armed,
+		"hunted": hunted,
+		"bleed": bleed_turns,
 	}
