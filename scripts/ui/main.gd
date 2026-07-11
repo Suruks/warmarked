@@ -16,6 +16,7 @@ var board_view: BoardView
 var _opp_bar: ScoreBar   # очки противника — сверху
 var _my_bar: ScoreBar    # очки игрока — под доской
 var panel_host: MarginContainer
+var _menu_art: TextureRect   # арт в пустой верхней области меню (вне матча)
 
 # локальный режим
 var round_order: Array = []
@@ -56,6 +57,16 @@ func _arg_value(args: Array, keys: Array, fallback: String) -> String:
 func _build_layout() -> void:
 	Layout.verify_project_settings()
 
+	# Арт-заставка меню в верхней области, где вне матча нет доски. Позади всего остального.
+	_menu_art = TextureRect.new()
+	_menu_art.texture = Icons.tex_opt("res://graphics/art.jpg")
+	_menu_art.position = Vector2.ZERO
+	_menu_art.size = Vector2(Layout.SCREEN_W, Layout.PANEL_TOP)
+	_menu_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_menu_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_menu_art.visible = false
+	add_child(_menu_art)
+
 	# очки противника — сверху (вместо строки инфо)
 	_opp_bar = ScoreBar.new()
 	add_child(_opp_bar)
@@ -65,7 +76,7 @@ func _build_layout() -> void:
 	board_view = BoardView.new()
 	board_view.position = Vector2(Layout.BOARD_X, Layout.BOARD_Y)
 	add_child(board_view)
-	board_view.setup(Board.new())   # пустая доска как фон меню; матч подменит её на state.board
+	board_view.setup(Board.new())   # инициализация пустой доской; матч подменит на state.board
 
 	# очки игрока — под доской, над панелью
 	_my_bar = ScoreBar.new()
@@ -79,6 +90,8 @@ func _build_layout() -> void:
 	panel_host.size = panel_host.custom_minimum_size
 	add_child(panel_host)
 
+	# доска и счёт скрыты вне матча — в меню/коллекции их нет, только в игре
+	board_view.visible = false
 	_opp_bar.visible = false
 	_my_bar.visible = false
 
@@ -132,6 +145,8 @@ func _set_perspective(player: int) -> void:
 
 
 func _update_score_bars() -> void:
+	# доска видна только во время матча (state != null): в меню и коллекции её нет
+	board_view.visible = state != null
 	if state == null:
 		_opp_bar.visible = false
 		_my_bar.visible = false
@@ -160,6 +175,7 @@ func _status(text: String) -> void:
 func _show_menu() -> void:
 	state = null
 	_update_score_bars()
+	_menu_art.visible = true
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -176,17 +192,11 @@ func _show_menu() -> void:
 	b_local.pressed.connect(_start_local)
 	box.add_child(b_local)
 
-	var host := LineEdit.new()
-	host.text = DEFAULT_HOST
-	host.placeholder_text = "IP сервера или wss://домен"
-	host.add_theme_font_size_override("font_size", 18)
-	box.add_child(host)
-
 	var b_online := Button.new()
 	b_online.text = "Онлайн (найти игру)"
 	b_online.custom_minimum_size = Vector2(0, 52)
 	b_online.add_theme_font_size_override("font_size", 20)
-	b_online.pressed.connect(func(): _start_online(host.text.strip_edges()))
+	b_online.pressed.connect(func(): _start_online(DEFAULT_HOST))
 	box.add_child(b_online)
 
 	var b_coll := Button.new()
@@ -200,15 +210,28 @@ func _show_menu() -> void:
 
 
 func _show_collection() -> void:
+	# коллекция — на весь экран, а не в нижней панели (panel_host): доски в меню нет,
+	# так что место свободно. Кладём отдельным оверлеем поверх корня, чиним меню на выходе.
+	_menu_art.visible = false
+	for c in panel_host.get_children():
+		c.queue_free()
 	var cp := CollectionPanel.new()
-	cp.closed.connect(_show_menu)
-	_set_panel(cp)
+	cp.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cp.offset_left = Layout.BOARD_X
+	cp.offset_right = -Layout.BOARD_X
+	cp.offset_top = Layout.SCORE_TOP_Y
+	cp.offset_bottom = -Layout.PANEL_BOTTOM_MARGIN
+	add_child(cp)
+	cp.closed.connect(func():
+		cp.queue_free()
+		_show_menu())
 
 
 # ============================================================ локальный hotseat
 
 func _start_local() -> void:
 	online = false
+	_menu_art.visible = false
 	state = MatchState.new()
 	var lo := Loadout.all()   # hotseat: оба игрока за одним устройством, киты зеркальны
 	state.setup(lo, lo)
@@ -296,6 +319,7 @@ func _on_local_resolution_done() -> void:
 
 func _start_online(host: String) -> void:
 	online = true
+	_menu_art.visible = false
 	if host == "":
 		host = DEFAULT_HOST
 	_status("Подключение к %s…" % host)

@@ -15,7 +15,8 @@ enum Skill {
 	TRAP, SNIPE, SHOTGUN,                 # Охотник
 	CANCEL, HEAL, FLASH,                  # Фея
 	JUMP, AMBUSH, DASH,                   # Кристалкайнд — базовые
-	ONSLAUGHT, CRYSTAL_SHOT, REFLEXES,    # Кристалкайнд — расширение пула
+	ONSLAUGHT, SPIKES, REFLEXES,          # Кристалкайнд — расширение пула
+	HARDENING, SHARDS, OVERLOAD, SWAP,    # Кристалкайнд — новые
 }
 
 const SKILLS_PER_HERO := 3
@@ -38,6 +39,7 @@ enum EventType {
 	AMBUSH_ARMED, AMBUSH_TRIGGER, SHIELD_ARMED, SHIELD_ABSORB,
 	COLLISION, KNOCKBACK, IMMOBILIZE, FIZZLE, MANA, SCORE,
 	REFLEX_ARMED, REFLEX_DODGE,
+	HARDEN_ARMED, HARDEN_BLOCK, SHARDS_ARMED,
 }
 
 # --- Поле ---
@@ -106,9 +108,24 @@ const DASH_DMG := 4
 const ONSLAUGHT_MANA := 4
 const ONSLAUGHT_DMG := 5
 
-# Отстрел кристаллов: первый юнит на каждой из 4 диагоналей (по своим тоже)
-const CRYSTAL_SHOT_MANA := 2
-const CRYSTAL_SHOT_DMG := 3
+# Острые шипы: урон по 4 диагонально-соседним клеткам (по своим тоже)
+const SPIKES_MANA := 2
+const SPIKES_DMG := 3
+
+# Затвердение: стойка, снижает весь входящий урон по кристаллу на HARDENING_REDUCTION до конца раунда
+const HARDENING_MANA := 2
+const HARDENING_REDUCTION := 2
+
+# Осколки: стойка, ответка каждому врагу, нанёсшему кристаллу урон в этом раунде
+const SHARDS_MANA := 2
+const SHARDS_DMG := 3
+
+# Перегрузка: тратит ВСЮ ману, урон соседу за каждую потраченную ману (мин. цена OVERLOAD_MANA)
+const OVERLOAD_MANA := 1
+const OVERLOAD_DMG_PER_MANA := 2
+
+# Обмен местами: swap с соседним юнитом (своим или чужим)
+const SWAP_MANA := 2
 
 # Рефлексы: стойка; соседний враг целит в эту клетку -> отступить на 1 и получить ману
 const REFLEXES_MANA := 1

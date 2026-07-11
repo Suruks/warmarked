@@ -101,7 +101,8 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 					"Щит %s поглотил капкан (урон и обездвиживание)" % unit.full_name())
 			else:
 				unit.immobilized = true   # замер СРАЗУ: гасит остаток движения в этом же раунде
-				_deal_damage(state, unit, Consts.TRAP_DMG, t.owner_player, events, "капкан")
+				_deal_damage(state, unit, Consts.TRAP_DMG, t.owner_player, events, "капкан",
+					state.get_unit(t.owner_id))
 			if not unit.alive:
 				return
 	# Засады: срабатывают, когда ВРАЖЕСКИЙ юнит входит рядом с Кристалкайндом
@@ -114,7 +115,7 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 			state.ambushes.erase(a)
 			_push(events, state, Consts.EventType.AMBUSH_TRIGGER,
 				"Засада %s! %s входит рядом" % [owner.full_name(), unit.full_name()])
-			_deal_damage(state, unit, Consts.AMBUSH_DMG, owner.owner, events, "засада")
+			_deal_damage(state, unit, Consts.AMBUSH_DMG, owner.owner, events, "засада", owner)
 			if not unit.alive:
 				return
 
@@ -137,7 +138,10 @@ func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, e
 
 # ---------------------------------------------------------------- урон / смерть
 
-func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int, events: Array, label: String) -> void:
+# src_unit — юнит-источник урона (нужен Осколкам для ответки); для средовых источников
+# (столкновение о стену) — null. retaliate=false у самой ответки, чтобы шипы не зациклились.
+func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int, events: Array, label: String,
+		src_unit: Unit = null, retaliate: bool = true) -> void:
 	var dmg := amount
 	if target.hero_type == Consts.HeroType.CRYSTAL:
 		dmg = max(0, dmg - Consts.CRYSTAL_PASSIVE_REDUCTION)
@@ -145,6 +149,14 @@ func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int,
 		_push(events, state, Consts.EventType.DAMAGE,
 			"%s: пассив свёл урон к 0 (%s)" % [target.full_name(), label])
 		return
+	# Затвердение срезает урон на HARDENING_REDUCTION в этом раунде и не тратится (в отличие
+	# от разового щита); срезал в ноль -> полностью поглотил
+	if target.hardened:
+		dmg = max(0, dmg - Consts.HARDENING_REDUCTION)
+		if dmg <= 0:
+			_push(events, state, Consts.EventType.HARDEN_BLOCK,
+				"Затвердение %s поглотило удар (%s)" % [target.full_name(), label])
+			return
 	if target.shield_armed:
 		target.shield_armed = false
 		_push(events, state, Consts.EventType.SHIELD_ABSORB,
@@ -154,6 +166,10 @@ func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int,
 	_push(events, state, Consts.EventType.DAMAGE,
 		"%s получает %d (%s) -> HP %d/%d" % [target.full_name(), dmg, label, max(target.hp, 0), target.max_hp],
 		{"victim": target.id, "amount": dmg})   # amount — для всплывающей цифры в UI
+	# Осколки: враг, реально нанёсший урон, получает ответку (даже если жертва погибла)
+	if retaliate and target.shards_armed and src_unit != null and src_unit.alive \
+			and src_unit.owner != target.owner:
+		_deal_damage(state, src_unit, Consts.SHARDS_DMG, target.owner, events, "осколки", target, false)
 	if target.hp <= 0:
 		_kill(state, target, src_player, events)
 
@@ -210,7 +226,7 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 	_push(events, state, Consts.EventType.ATTACK,
 		"%s атакует %s" % [unit.full_name(), victim.full_name()],
 		{"actor": unit.id, "target_cell": et})
-	_deal_damage(state, victim, dmg, unit.owner, events, "атака")
+	_deal_damage(state, victim, dmg, unit.owner, events, "атака", unit)
 
 
 # ---------------------------------------------------------------- способности
@@ -252,8 +268,12 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.AMBUSH: _sk_ambush(state, unit, events)
 		Consts.Skill.DASH: _sk_dash(state, unit, et, events)
 		Consts.Skill.ONSLAUGHT: _sk_onslaught(state, unit, et, events)
-		Consts.Skill.CRYSTAL_SHOT: _sk_crystal_shot(state, unit, events)
+		Consts.Skill.SPIKES: _sk_spikes(state, unit, events)
 		Consts.Skill.REFLEXES: _sk_reflexes(state, unit, events)
+		Consts.Skill.HARDENING: _sk_hardening(state, unit, events)
+		Consts.Skill.SHARDS: _sk_shards(state, unit, events)
+		Consts.Skill.OVERLOAD: _sk_overload(state, unit, et, events)
+		Consts.Skill.SWAP: _sk_swap(state, unit, et, events)
 
 
 # Капкан — не ставится в занятую юнитом или могилой клетку
@@ -278,7 +298,7 @@ func _sk_snipe(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> vo
 	if v == null:
 		_push(events, state, Consts.EventType.FIZZLE, "Снайп в пустоту (%d,%d)" % [et.x, et.y])
 		return
-	_deal_damage(state, v, Consts.SNIPE_DMG, unit.owner, events, "снайп")
+	_deal_damage(state, v, Consts.SNIPE_DMG, unit.owner, events, "снайп", unit)
 
 
 # Дробь — квадрат 2x2 по диагонали (диагональ + две ортогональные к стрелку)
@@ -293,7 +313,7 @@ func _sk_shotgun(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> 
 		var v := state.unit_at(c)
 		if v == null:
 			continue
-		_deal_damage(state, v, Consts.SHOTGUN_DMG, unit.owner, events, "дробь")
+		_deal_damage(state, v, Consts.SHOTGUN_DMG, unit.owner, events, "дробь", unit)
 		if v.alive:
 			_knockback(state, v, _dir_sign(v.cell - unit.cell), unit.owner, events)
 
@@ -326,7 +346,7 @@ func _sk_flash(state: MatchState, unit: Unit, events: Array) -> void:
 	for d in Consts.DIRS8:
 		var v := state.unit_at(unit.cell + d)
 		if v != null:
-			_deal_damage(state, v, Consts.FLASH_DMG, unit.owner, events, "вспышка")
+			_deal_damage(state, v, Consts.FLASH_DMG, unit.owner, events, "вспышка", unit)
 
 
 func _sk_jump(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
@@ -346,7 +366,7 @@ func _sk_jump(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 	_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
 		"%s перепрыгивает на (%d,%d)" % [unit.full_name(), land.x, land.y])
 	if jumped.owner != unit.owner and jumped.alive:
-		_deal_damage(state, jumped, Consts.JUMP_DMG, unit.owner, events, "прыжок")
+		_deal_damage(state, jumped, Consts.JUMP_DMG, unit.owner, events, "прыжок", unit)
 
 
 func _sk_ambush(state: MatchState, unit: Unit, events: Array) -> void:
@@ -371,7 +391,7 @@ func _sk_dash(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 			break
 		var v := state.unit_at(c)
 		if v != null and v.id != unit.id:
-			_deal_damage(state, v, Consts.DASH_DMG, unit.owner, events, "рывок")
+			_deal_damage(state, v, Consts.DASH_DMG, unit.owner, events, "рывок", unit)
 		else:
 			land = c
 	if land != unit.cell:
@@ -390,7 +410,7 @@ func _sk_onslaught(state: MatchState, unit: Unit, et: Vector2i, events: Array) -
 		_push(events, state, Consts.EventType.FIZZLE, "Натиск в пустоту (%d,%d)" % [et.x, et.y])
 		return
 	var dir := _dir_sign(et - unit.cell)
-	_deal_damage(state, victim, Consts.ONSLAUGHT_DMG, unit.owner, events, "натиск")
+	_deal_damage(state, victim, Consts.ONSLAUGHT_DMG, unit.owner, events, "натиск", unit)
 	if victim.alive:
 		_knockback(state, victim, dir, unit.owner, events)
 	if state.unit_at(et) == null and state.board.is_passable(et):
@@ -398,23 +418,74 @@ func _sk_onslaught(state: MatchState, unit: Unit, et: Vector2i, events: Array) -
 			"%s продвигается на (%d,%d)" % [unit.full_name(), et.x, et.y])
 
 
-# Отстрел кристаллов — первый юнит на каждой из 4 диагоналей (по своим тоже)
-func _sk_crystal_shot(state: MatchState, unit: Unit, events: Array) -> void:
+# Острые шипы — урон по 4 диагонально-соседним клеткам (по своим тоже, как Вспышка)
+func _sk_spikes(state: MatchState, unit: Unit, events: Array) -> void:
 	var hit := false
 	for d in Consts.DIRS_DIAG:
-		var v := _first_unit_on_ray(state, unit.cell, d)
+		var v := state.unit_at(unit.cell + d)
 		if v == null:
 			continue
 		hit = true
-		_deal_damage(state, v, Consts.CRYSTAL_SHOT_DMG, unit.owner, events, "отстрел кристаллов")
+		_deal_damage(state, v, Consts.SPIKES_DMG, unit.owner, events, "острые шипы", unit)
 	if not hit:
-		_push(events, state, Consts.EventType.FIZZLE, "Отстрел кристаллов: на диагоналях пусто")
+		_push(events, state, Consts.EventType.FIZZLE, "Острые шипы: по диагоналям рядом пусто")
 
 
 func _sk_reflexes(state: MatchState, unit: Unit, events: Array) -> void:
 	unit.reflexes_armed = true
 	_push(events, state, Consts.EventType.REFLEX_ARMED,
 		"%s встаёт в стойку рефлексов" % unit.full_name())
+
+
+# Затвердение — стойка: входящий урон в этом раунде срезается на HARDENING_REDUCTION (см. _deal_damage)
+func _sk_hardening(state: MatchState, unit: Unit, events: Array) -> void:
+	unit.hardened = true
+	_push(events, state, Consts.EventType.HARDEN_ARMED,
+		"%s затвердевает — весь урон в этом раунде меньше на %d" % [unit.full_name(), Consts.HARDENING_REDUCTION])
+
+
+# Осколки — стойка: враг, нанёсший урон в этом раунде, получает ответку (см. _deal_damage)
+func _sk_shards(state: MatchState, unit: Unit, events: Array) -> void:
+	unit.shards_armed = true
+	_push(events, state, Consts.EventType.SHARDS_ARMED,
+		"%s покрывается осколками" % unit.full_name())
+
+
+# Перегрузка — тратит ВСЮ ману (базовая цена уже списана в _do_ability), урон соседу
+# 2 за каждую потраченную. Фиксируем ману до удара, чтобы фиксированное число попало и в лог.
+func _sk_overload(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _manhattan(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Перегрузка: цель не соседняя")
+		return
+	var victim := state.unit_at(et)
+	if victim == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Перегрузка в пустоту (%d,%d)" % [et.x, et.y])
+		return
+	var spent := Consts.OVERLOAD_MANA + unit.mana   # база (уже вычтена) + весь остаток
+	unit.mana = 0
+	_deal_damage(state, victim, spent * Consts.OVERLOAD_DMG_PER_MANA, unit.owner, events,
+		"перегрузка", unit)
+
+
+# Обмен местами — телепорт-swap с соседним юнитом (своим/чужим); без входа в клетку,
+# поэтому капканы/засады на клетках назначения не срабатывают.
+func _sk_swap(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _cheb(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Обмен местами: цель не соседняя")
+		return
+	var other := state.unit_at(et)
+	if other == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Обмен местами: некого менять (%d,%d)" % [et.x, et.y])
+		return
+	var my_cell := unit.cell
+	unit.cell = other.cell
+	other.cell = my_cell
+	_push(events, state, Consts.EventType.MOVE,
+		"%s меняется местами с %s" % [unit.full_name(), other.full_name()],
+		{"actor": unit.id, "to_cell": unit.cell})
+	_push(events, state, Consts.EventType.MOVE,
+		"%s перемещён на (%d,%d)" % [other.full_name(), other.cell.x, other.cell.y],
+		{"actor": other.id, "to_cell": other.cell})
 
 
 # Соседний враг целит в клетку юнита со взведёнными рефлексами: тот отступает на 1 и
@@ -457,7 +528,7 @@ func _dir_sign(delta: Vector2i) -> Vector2i:
 
 # Скиллы, чей эффект перемещает самого кастера (значит, блокируются обездвиживанием)
 func _skill_moves_caster(skill: int) -> bool:
-	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT]
+	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT, Consts.Skill.SWAP]
 
 
 # Первый живой юнит на прямой от from к target (стена/край -> пуля погашена, null).

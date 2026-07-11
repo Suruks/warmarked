@@ -102,6 +102,10 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _ray(off) >= 1
 		Consts.Skill.ONSLAUGHT:   # орто-сосед
 			return _man(off) == 1
+		Consts.Skill.OVERLOAD:    # орто-сосед
+			return _man(off) == 1
+		Consts.Skill.SWAP:        # соседний (8 сторон)
+			return _cheb(off) == 1
 	return false
 
 

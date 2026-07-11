@@ -26,6 +26,12 @@ var shield_armed: bool = false
 # Рефлексы Кристалкайнда. Взводится во время разрешения, срабатывает один раз. Сбрасывается в начале раунда.
 var reflexes_armed: bool = false
 
+# Затвердение Кристалкайнда. Пока взведено, весь урон по юниту поглощается. Сбрасывается в начале раунда.
+var hardened: bool = false
+
+# Осколки Кристалкайнда. Пока взведено, враг, нанёсший урон, получает ответку. Сбрасывается в начале раунда.
+var shards_armed: bool = false
+
 # Кит: ровно SKILLS_PER_HERO id из Consts.Skill, слоты ABILITY1..3 по возрастанию маны
 var skills: Array = []
 
@@ -67,4 +73,6 @@ func snapshot() -> Dictionary:
 		"immobilized": immobilized,
 		"shield": shield_armed,
 		"reflex": reflexes_armed,
+		"hardened": hardened,
+		"shards": shards_armed,
 	}

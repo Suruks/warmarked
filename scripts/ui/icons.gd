@@ -33,8 +33,12 @@ const SKILL_FILES := {
 	Consts.Skill.AMBUSH: "ambush.png",
 	Consts.Skill.DASH: "charge.png",
 	Consts.Skill.ONSLAUGHT: "onslaught.png",
-	Consts.Skill.CRYSTAL_SHOT: "crystal_shot.png",
+	Consts.Skill.SPIKES: "crystal_shot.png",   # переиспользуем существующий арт (диагональная тема)
 	Consts.Skill.REFLEXES: "reflexes.png",
+	Consts.Skill.HARDENING: "hardening.png",   # арт ещё не нарисован -> заглушка
+	Consts.Skill.SHARDS: "shards.png",
+	Consts.Skill.OVERLOAD: "overload.png",
+	Consts.Skill.SWAP: "swap.png",
 }
 
 

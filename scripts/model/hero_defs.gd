@@ -54,7 +54,9 @@ static func pool(hero_type: int) -> Array:
 			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH]
 		Consts.HeroType.CRYSTAL:
 			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.ONSLAUGHT,
-					Consts.Skill.DASH, Consts.Skill.CRYSTAL_SHOT, Consts.Skill.REFLEXES]
+					Consts.Skill.DASH, Consts.Skill.SPIKES, Consts.Skill.REFLEXES,
+					Consts.Skill.HARDENING, Consts.Skill.SHARDS, Consts.Skill.OVERLOAD,
+					Consts.Skill.SWAP]
 	return []
 
 
@@ -107,12 +109,24 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.ONSLAUGHT:
 			return AbilityDef.new("Натиск", Consts.ONSLAUGHT_MANA, Target.CELL,
 				"соседняя клетка: %d урона, отбрасывает на 1 и занимает освободившуюся клетку" % Consts.ONSLAUGHT_DMG)
-		Consts.Skill.CRYSTAL_SHOT:
-			return AbilityDef.new("Отстрел кристаллов", Consts.CRYSTAL_SHOT_MANA, Target.NONE,
-				"%d урона первому на каждой из 4 диагоналей, включая союзников" % Consts.CRYSTAL_SHOT_DMG)
+		Consts.Skill.SPIKES:
+			return AbilityDef.new("Острые шипы", Consts.SPIKES_MANA, Target.NONE,
+				"%d урона по 4 диагонально-соседним клеткам, включая союзников" % Consts.SPIKES_DMG)
 		Consts.Skill.REFLEXES:
 			return AbilityDef.new("Рефлексы", Consts.REFLEXES_MANA, Target.NONE,
 				"стойка: соседний враг целит в эту клетку -> отступить на 1 и получить %d маны" % Consts.REFLEXES_MANA_GAIN)
+		Consts.Skill.HARDENING:
+			return AbilityDef.new("Затвердение", Consts.HARDENING_MANA, Target.NONE,
+				"стойка: снижает весь входящий урон на %d до конца раунда" % Consts.HARDENING_REDUCTION)
+		Consts.Skill.SHARDS:
+			return AbilityDef.new("Осколки", Consts.SHARDS_MANA, Target.NONE,
+				"стойка: враг, нанёсший урон в этом раунде, получает %d в ответ" % Consts.SHARDS_DMG)
+		Consts.Skill.OVERLOAD:
+			return AbilityDef.new("Перегрузка", Consts.OVERLOAD_MANA, Target.CELL,
+				"соседняя цель: тратит всю ману, %d урона за каждую потраченную" % Consts.OVERLOAD_DMG_PER_MANA)
+		Consts.Skill.SWAP:
+			return AbilityDef.new("Обмен местами", Consts.SWAP_MANA, Target.CELL,
+				"меняется местами с соседним юнитом (своим или чужим)")
 	return AbilityDef.new("?", 0, Target.NONE, "")
 
 

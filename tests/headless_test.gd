@@ -42,7 +42,13 @@ func _initialize() -> void:
 	test_validator_rejects_foreign_and_dead()
 	test_onslaught_pushes_and_advances()
 	test_onslaught_into_wall_collides_and_blocks_advance()
-	test_crystal_shot_hits_both_diagonals()
+	test_spikes_hits_diagonal_neighbors()
+	test_spikes_ignore_distant_diagonal()
+	test_hardening_reduces_damage()
+	test_hardening_absorbs_small_hit()
+	test_shards_retaliate_on_attacker()
+	test_overload_spends_all_mana()
+	test_swap_exchanges_positions()
 	test_reflexes_dodges_and_gains_mana()
 	test_reflexes_blocked_when_cornered()
 	test_skill_slot_follows_loadout()
@@ -704,19 +710,100 @@ func test_onslaught_into_wall_collides_and_blocks_advance() -> void:
 	_check(c.cell == Vector2i(3, 3), "натиск в стену: продвижения нет — клетка занята")
 
 
-func test_crystal_shot_hits_both_diagonals() -> void:
-	# Из (3,3) лучи по 4 диагоналям; бьёт и врага, и союзника (как Вспышка)
+func test_spikes_hits_diagonal_neighbors() -> void:
+	# Из (3,3) по 4 диагонально-СОСЕДНИМ клеткам; бьёт и врага, и союзника (как Вспышка)
 	var s := _fresh()
-	_arm(s, 2, Vector2i(3, 3), Consts.Skill.CRYSTAL_SHOT)   # A crystal
+	_arm(s, 2, Vector2i(3, 3), Consts.Skill.SPIKES)         # A crystal
 	var foe := _place(s, 3, Vector2i(4, 4))                 # B hunter — диагональ (+1,+1)
 	var ally := _place(s, 1, Vector2i(2, 2))                # A fairy — диагональ (-1,-1)
 	var oa := _slots()
 	oa[0] = Order.make(2, Consts.Action.ABILITY1)           # без цели
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
-	_check(foe.hp == Consts.HUNTER_HP - Consts.CRYSTAL_SHOT_DMG,
-		"отстрел: враг на диагонали получил урон [%d]" % foe.hp)
-	_check(ally.hp == Consts.FAIRY_HP - Consts.CRYSTAL_SHOT_DMG,
-		"отстрел: союзник на диагонали тоже получил урон [%d]" % ally.hp)
+	_check(foe.hp == Consts.HUNTER_HP - Consts.SPIKES_DMG,
+		"шипы: враг на диагонали получил урон [%d]" % foe.hp)
+	_check(ally.hp == Consts.FAIRY_HP - Consts.SPIKES_DMG,
+		"шипы: союзник на диагонали тоже получил урон [%d]" % ally.hp)
+
+
+func test_spikes_ignore_distant_diagonal() -> void:
+	# Шипы бьют только СОСЕДНЮЮ диагональ: юнит на (5,5) — за радиусом — не задет
+	var s := _fresh()
+	_arm(s, 2, Vector2i(3, 3), Consts.Skill.SPIKES)
+	var far := _place(s, 3, Vector2i(5, 5))                 # диагональ, но дистанция 2
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(far.hp == Consts.HUNTER_HP, "шипы: дальняя диагональ не задета [%d]" % far.hp)
+
+
+func test_hardening_reduces_damage() -> void:
+	# Затвердение срезает входящий урон на HARDENING_REDUCTION (удар 3 -> 1)
+	var s := _fresh()
+	var c := _arm(s, 5, Vector2i(3, 3), Consts.Skill.HARDENING)   # B crystal затвердевает
+	c.mana = Consts.HARDENING_MANA
+	_place(s, 2, Vector2i(3, 4))                                  # A crystal бьёт в упор (урон 3)
+	var oa := _slots()
+	oa[1] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 3))   # удар после затвердения
+	var ob := _slots()
+	ob[0] = Order.make(5, Consts.Action.ABILITY1)                # затвердение (слот 1)
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	var expect := Consts.CRYSTAL_HP - (Consts.CRYSTAL_ATK_DMG - Consts.HARDENING_REDUCTION)
+	_check(c.hp == expect, "затвердение: урон срезан на %d, HP %d [%d]" % [Consts.HARDENING_REDUCTION, expect, c.hp])
+
+
+func test_hardening_absorbs_small_hit() -> void:
+	# Урон <= HARDENING_REDUCTION поглощается полностью (удар Феи 2 -> 0)
+	var s := _fresh()
+	var c := _arm(s, 5, Vector2i(3, 3), Consts.Skill.HARDENING)   # B crystal
+	c.mana = Consts.HARDENING_MANA
+	_place(s, 1, Vector2i(3, 4))                                  # A fairy бьёт (урон 2)
+	var oa := _slots()
+	oa[1] = Order.make(1, Consts.Action.ATTACK, Vector2i(3, 3))
+	var ob := _slots()
+	ob[0] = Order.make(5, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(c.hp == Consts.CRYSTAL_HP, "затвердение: слабый удар (%d) поглощён [%d]" % [Consts.FAIRY_ATK_DMG, c.hp])
+
+
+func test_shards_retaliate_on_attacker() -> void:
+	# Осколки: атакующий враг получает ответку в тот же раунд
+	var s := _fresh()
+	var c := _arm(s, 5, Vector2i(3, 3), Consts.Skill.SHARDS)      # B crystal со шипами-осколками
+	c.mana = Consts.SHARDS_MANA
+	var atk := _place(s, 2, Vector2i(3, 4), 10)                   # A crystal, HP 10
+	var ob := _slots()
+	ob[0] = Order.make(5, Consts.Action.ABILITY1)                # осколки (слот 1)
+	var oa := _slots()
+	oa[1] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 3))  # A бьёт кристалла (слот 2)
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(c.hp == Consts.CRYSTAL_HP - Consts.CRYSTAL_ATK_DMG, "осколки: жертва всё равно получила удар [%d]" % c.hp)
+	_check(atk.hp == 10 - Consts.SHARDS_DMG, "осколки: атакующий получил ответку [%d]" % atk.hp)
+
+
+func test_overload_spends_all_mana() -> void:
+	# Перегрузка: 3 маны -> 6 урона соседу, мана обнуляется
+	var s := _fresh()
+	var c := _arm(s, 2, Vector2i(3, 4), Consts.Skill.OVERLOAD)   # A crystal
+	c.mana = 3
+	var v := _place(s, 3, Vector2i(3, 3), 12)                    # B hunter сосед
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 12 - 3 * Consts.OVERLOAD_DMG_PER_MANA, "перегрузка: 3 маны -> %d урона [%d]" % [3 * Consts.OVERLOAD_DMG_PER_MANA, v.hp])
+	_check(c.mana == 0, "перегрузка: вся мана потрачена [%d]" % c.mana)
+
+
+func test_swap_exchanges_positions() -> void:
+	# Обмен местами: кристалл и соседний враг меняются клетками
+	var s := _fresh()
+	var c := _arm(s, 2, Vector2i(3, 4), Consts.Skill.SWAP)       # A crystal
+	c.mana = Consts.SWAP_MANA
+	var other := _place(s, 3, Vector2i(3, 3))                    # B hunter сосед (орто)
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(c.cell == Vector2i(3, 3), "обмен: кристалл встал на клетку врага [%s]" % c.cell)
+	_check(other.cell == Vector2i(3, 4), "обмен: враг встал на клетку кристалла [%s]" % other.cell)
 
 
 func test_reflexes_dodges_and_gains_mana() -> void:

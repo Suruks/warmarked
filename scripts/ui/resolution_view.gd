@@ -141,5 +141,7 @@ func _format(e: Dictionary) -> String:
 		Consts.EventType.KILL, Consts.EventType.SCORE: col = "ffd24a"
 		Consts.EventType.TRAP_TRIGGER, Consts.EventType.AMBUSH_TRIGGER: col = "e0a54a"
 		Consts.EventType.FIZZLE: col = "6a7180"
-		Consts.EventType.SHIELD_ABSORB, Consts.EventType.SHIELD_ARMED: col = "7fd0ff"
+		Consts.EventType.SHIELD_ABSORB, Consts.EventType.SHIELD_ARMED, \
+		Consts.EventType.HARDEN_ARMED, Consts.EventType.HARDEN_BLOCK, \
+		Consts.EventType.SHARDS_ARMED: col = "7fd0ff"
 	return "[color=#%s]%s[/color]" % [col, e.text]

@@ -96,6 +96,8 @@ func begin_round() -> Array:
 	for u in units:
 		u.shield_armed = false
 		u.reflexes_armed = false
+		u.hardened = false
+		u.shards_armed = false
 		u.immobilized = false   # капкан замораживает лишь до конца своего раунда — новый раунд свободен
 		if u.alive and round_num > 1:
 			u.mana += 1

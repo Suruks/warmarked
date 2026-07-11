@@ -98,8 +98,8 @@ static func _basic_attack_cells(state: MatchState, unit: Unit, origin: Vector2i)
 	return out
 
 
-# Кандидаты по id скилла в слоте idx. Скиллы без цели (Вспышка, Засада, Отстрел
-# кристаллов, Рефлексы) кандидатов не имеют — сюда не попадают.
+# Кандидаты по id скилла в слоте idx. Скиллы без цели (Вспышка, Засада, Острые шипы,
+# Рефлексы, Затвердение, Осколки) кандидатов не имеют — сюда не попадают.
 static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vector2i, occ: Dictionary) -> Array[Vector2i]:
 	var board := state.board
 	var out: Array[Vector2i] = []
@@ -155,5 +155,15 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 			for d in Consts.DIRS4:
 				var c: Vector2i = origin + d
 				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.OVERLOAD:  # любой орто-сосед (как Натиск — целим вслепую)
+			for d in Consts.DIRS4:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.SWAP:  # соседний (8 сторон) занятый юнитом — с ним и меняемся
+			for d in Consts.DIRS8:
+				var c: Vector2i = origin + d
+				if board.is_passable(c) and _at(occ, c) != null:
 					out.append(c)
 	return out
