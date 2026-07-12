@@ -49,6 +49,12 @@ var no_attack_turns: int = 0
 # «Замедление» Феи: пока > 0, дальность хода юнита снижена. Держится через раунды (убывает).
 var slow_turns: int = 0
 
+# --- Пассивки ---
+var moved_this_round: bool = false   # менял ли клетку в этом раунде (для «Снайпер»)
+var moved_last_round: bool = false   # менял ли клетку в прошлом раунде
+var shell_used: bool = false         # «Кристальный панцирь»: срезка первого урона уже сработала
+var block_amount: int = 0            # «Блок» (нейтрал): запас поглощения урона на раунд
+
 # Кит: ровно SKILLS_PER_HERO id из Consts.Skill, слоты ABILITY1..3 по возрастанию маны
 var skills: Array = []
 
@@ -66,6 +72,18 @@ func _init(p_id: int, p_owner: int, p_hero_type: int, p_cell: Vector2i, p_skills
 		Consts.HeroType.CRYSTAL: max_hp = Consts.CRYSTAL_HP
 	hp = max_hp
 	mana = Consts.START_MANA
+
+
+func has_skill(id: int) -> bool:
+	return id in skills
+
+
+# Эффективная дальность хода: «Лёгкость» повышает, «Замедление» понижает.
+func move_range() -> int:
+	var r: int = Consts.LIGHTNESS_MOVE_RANGE if has_skill(Consts.Skill.LIGHTNESS) else Consts.MOVE_RANGE
+	if slow_turns > 0:
+		r -= Consts.SLOW_MOVE_PENALTY
+	return maxi(0, r)
 
 
 func name_short() -> String:

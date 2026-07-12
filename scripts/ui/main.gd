@@ -17,6 +17,7 @@ var _opp_bar: ScoreBar   # очки противника — сверху
 var _my_bar: ScoreBar    # очки игрока — под доской
 var panel_host: MarginContainer
 var _menu_art: TextureRect   # арт в пустой верхней области меню (вне матча)
+var _background: TextureRect   # фон в матче и коллекции (позади всего)
 var _effect_panel: RichTextLabel   # эффекты выделенного юнита — между очками и скиллами
 
 # локальный режим
@@ -37,7 +38,7 @@ func _ready() -> void:
 	if args.has("server") or args.has("--server"):
 		Net.start_server(Net.DEFAULT_PORT)
 		return
-	Loadout.load_from_disk()
+	# Коллекция живёт только в памяти на сессию — с диска не читаем и на диск не пишем.
 	_build_layout()
 	_connect_net()
 	if args.has("autoclient") or args.has("--autoclient"):
@@ -57,6 +58,15 @@ func _arg_value(args: Array, keys: Array, fallback: String) -> String:
 
 func _build_layout() -> void:
 	Layout.verify_project_settings()
+
+	# Фон матча и коллекции — на весь экран, позади всего остального (первым в дереве).
+	_background = TextureRect.new()
+	_background.texture = Icons.tex_opt("res://graphics/background.png")
+	_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_background.visible = false
+	add_child(_background)
 
 	# Арт-заставка меню в верхней области, где вне матча нет доски. Позади всего остального.
 	_menu_art = TextureRect.new()
@@ -162,6 +172,7 @@ func _update_score_bars() -> void:
 	# доска видна только во время матча (state != null): в меню и коллекции её нет
 	board_view.visible = state != null
 	_effect_panel.visible = state != null
+	_background.visible = state != null   # фон матча (в коллекции включается отдельно)
 	if state == null:
 		_opp_bar.visible = false
 		_my_bar.visible = false
@@ -228,6 +239,7 @@ func _show_collection() -> void:
 	# коллекция — на весь экран, а не в нижней панели (panel_host): доски в меню нет,
 	# так что место свободно. Кладём отдельным оверлеем поверх корня, чиним меню на выходе.
 	_menu_art.visible = false
+	_background.visible = true   # фон под коллекцией
 	for c in panel_host.get_children():
 		c.queue_free()
 	var cp := CollectionPanel.new()

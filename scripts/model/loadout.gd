@@ -76,7 +76,8 @@ static func sanitize_hero(hero_type: int, skills: Variant) -> Array:
 	var p := HeroDefs.pool(hero_type)
 	var out: Array = []
 	for s in skills:
-		if typeof(s) == TYPE_INT and (s in p) and not (s in out):
+		# в кит героя годятся его классовые скиллы ИЛИ нейтральные
+		if typeof(s) == TYPE_INT and (s in p or HeroDefs.is_neutral(s)) and not (s in out):
 			out.append(s)
 	if out.size() != Consts.SKILLS_PER_HERO:
 		return HeroDefs.default_skills(hero_type)

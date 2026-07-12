@@ -106,6 +106,11 @@ func begin_round() -> Array:
 		u.shards_armed = false
 		u.hunted = false
 		u.disoriented = false   # дезориентация действует лишь на свой раунд
+		u.shell_used = false     # «Кристальный панцирь» — срезка снова доступна
+		u.block_amount = 0       # «Блок» — запас поглощения сбрасывается
+		# «Снайпер»: движение прошлого раунда — фиксируем и обнуляем счётчик текущего
+		u.moved_last_round = u.moved_this_round
+		u.moved_this_round = false
 		u.immobilized = false   # капкан замораживает лишь до конца своего раунда — новый раунд свободен
 		# Эффекты с длительностью держатся через раунды: убывают, а не сбрасываются
 		if u.bleed_turns > 0:
@@ -136,7 +141,26 @@ func begin_round() -> Array:
 		if a.expire_round >= round_num and owner != null and owner.alive:
 			kept_amb.append(a)
 	ambushes = kept_amb
+	_blessing_heal(events)
 	return events
+
+
+# «Благословение»: каждая живая Фея с этой пассивкой в начале раунда лечит союзников
+# в радиусе 1 на BLESSING_HEAL HP (саму себя — нет).
+func _blessing_heal(events: Array) -> void:
+	for f in units:
+		if not (f.alive and f.has_skill(Consts.Skill.BLESSING)):
+			continue
+		for u in units:
+			if u.id == f.id or not u.alive or u.owner != f.owner or u.hp >= u.max_hp:
+				continue
+			if maxi(absi(u.cell.x - f.cell.x), absi(u.cell.y - f.cell.y)) > 1:
+				continue
+			var before := u.hp
+			u.hp = mini(u.max_hp, u.hp + Consts.BLESSING_HEAL)
+			events.append(_ev(Consts.EventType.HEAL,
+				"Благословение %s: +%d HP %s" % [f.full_name(), u.hp - before, u.full_name()],
+				{"victim": u.id, "amount": u.hp - before}))
 
 
 # Респ в РОДНОМ ряду, а не на клетке смерти: при коротком кулдауне возвращение под чужие

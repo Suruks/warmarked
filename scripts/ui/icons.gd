@@ -53,6 +53,19 @@ const SKILL_FILES := {
 	Consts.Skill.SLOW: "slow.png",
 	Consts.Skill.TELEPORT: "teleport.png",
 	Consts.Skill.REVIVE: "revive.png",
+	Consts.Skill.LIGHTNING: "lightning.png",
+	Consts.Skill.SNIPER: "sniper.png",
+	Consts.Skill.COLD_BLOOD: "cold_blood.png",
+	Consts.Skill.BLESSING: "blessing.png",
+	Consts.Skill.LIGHTNESS: "lightness.png",
+	Consts.Skill.CRYSTAL_SHELL: "crystal_shell.png",
+	Consts.Skill.DEATH_NOVA: "death_nova.png",
+	Consts.Skill.PUSH: "push.png",
+	Consts.Skill.STEP: "step.png",
+	Consts.Skill.BLOCK: "block.png",
+	Consts.Skill.SWAP_ALLY: "swap_ally.png",
+	Consts.Skill.SELF_HEAL: "self_heal.png",
+	Consts.Skill.MEDITATION: "meditation.png",
 }
 
 

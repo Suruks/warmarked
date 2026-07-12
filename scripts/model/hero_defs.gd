@@ -20,13 +20,15 @@ class AbilityDef:
 	var target: int          # Target
 	var slot_gate: Array = []  # если непусто — разрешённые индексы слотов (0..3)
 	var desc: String
+	var passive: bool = false  # пассивка: занимает слот, но не активируется и не стоит маны
 
-	func _init(p_name: String, p_mana: int, p_target: int, p_desc: String, p_gate: Array = []) -> void:
+	func _init(p_name: String, p_mana: int, p_target: int, p_desc: String, p_gate: Array = [], p_passive: bool = false) -> void:
 		name = p_name
 		mana = p_mana
 		target = p_target
 		desc = p_desc
 		slot_gate = p_gate
+		passive = p_passive
 
 
 # Возвращает описание базовой атаки героя
@@ -52,22 +54,47 @@ static func pool(hero_type: int) -> Array:
 			return [Consts.Skill.TRAP, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN,
 					Consts.Skill.PRECISE, Consts.Skill.HUNT_MARK, Consts.Skill.RETREAT,
 					Consts.Skill.NET, Consts.Skill.DEATHCROSS, Consts.Skill.MINEFIELD,
-					Consts.Skill.BLEED]
+					Consts.Skill.BLEED, Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD]
 		Consts.HeroType.FAIRY:
 			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH,
 					Consts.Skill.SPARK, Consts.Skill.DISORIENT, Consts.Skill.MANASTEAL,
 					Consts.Skill.SHACKLES, Consts.Skill.SLOW, Consts.Skill.TELEPORT,
-					Consts.Skill.REVIVE]
+					Consts.Skill.REVIVE, Consts.Skill.LIGHTNING,
+					Consts.Skill.BLESSING, Consts.Skill.LIGHTNESS]
 		Consts.HeroType.CRYSTAL:
 			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.ONSLAUGHT,
 					Consts.Skill.DASH, Consts.Skill.SPIKES, Consts.Skill.REFLEXES,
 					Consts.Skill.HARDENING, Consts.Skill.SHARDS, Consts.Skill.OVERLOAD,
-					Consts.Skill.SWAP]
+					Consts.Skill.SWAP, Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA]
 	return []
 
 
 static func default_skills(hero_type: int) -> Array:
 	return pool(hero_type).slice(0, Consts.SKILLS_PER_HERO)
+
+
+# Общий пул нейтральных скиллов — их можно навесить любому герою.
+static func neutrals() -> Array:
+	return [Consts.Skill.PUSH, Consts.Skill.STEP, Consts.Skill.BLOCK,
+			Consts.Skill.SWAP_ALLY, Consts.Skill.SELF_HEAL, Consts.Skill.MEDITATION]
+
+
+static func is_neutral(skill: int) -> bool:
+	return skill in neutrals()
+
+
+# Пассивка ли скилл (занимает слот, но не активируется).
+static func is_passive(skill: int) -> bool:
+	return skill in [Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD, Consts.Skill.BLESSING,
+			Consts.Skill.LIGHTNESS, Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA]
+
+
+# Класс (hero_type), которому принадлежит скилл; -1 если ничей.
+static func hero_of_skill(skill: int) -> int:
+	for h in [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL]:
+		if skill in pool(h):
+			return h
+	return -1
 
 
 # Порядок слотов ABILITY1..3 в бою: по возрастанию маны, id скилла как
@@ -127,6 +154,45 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.SPARK:
 			return AbilityDef.new("Искра", Consts.SPARK_MANA, Target.CELL,
 				"%d урона одиночной цели на дальности до %d" % [Consts.SPARK_DMG, Consts.SPARK_RANGE])
+		Consts.Skill.LIGHTNING:
+			return AbilityDef.new("Молния", Consts.LIGHTNING_MANA, Target.CELL,
+				"%d урона одиночной цели на дальности до %d" % [Consts.LIGHTNING_DMG, Consts.LIGHTNING_RANGE])
+		Consts.Skill.SNIPER:
+			return AbilityDef.new("Снайпер", 0, Target.NONE,
+				"пассив: если не двигался в прошлом раунде — базовая атака бьёт на любую дальность", [], true)
+		Consts.Skill.COLD_BLOOD:
+			return AbilityDef.new("Хладнокровие", 0, Target.NONE,
+				"пассив: после убийства получает %d маны" % Consts.COLD_BLOOD_MANA, [], true)
+		Consts.Skill.BLESSING:
+			return AbilityDef.new("Благословение", 0, Target.NONE,
+				"пассив: в начале хода восстанавливает %d HP союзникам в радиусе 1" % Consts.BLESSING_HEAL, [], true)
+		Consts.Skill.LIGHTNESS:
+			return AbilityDef.new("Лёгкость", 0, Target.NONE,
+				"пассив: дальность хода = %d" % Consts.LIGHTNESS_MOVE_RANGE, [], true)
+		Consts.Skill.CRYSTAL_SHELL:
+			return AbilityDef.new("Кристальный панцирь", 0, Target.NONE,
+				"пассив: первый полученный урон в каждом раунде меньше на %d" % Consts.SHELL_REDUCTION, [], true)
+		Consts.Skill.DEATH_NOVA:
+			return AbilityDef.new("Осколочный взрыв", 0, Target.NONE,
+				"пассив: после смерти наносит %d урона всем соседям" % Consts.DEATH_NOVA_DMG, [], true)
+		Consts.Skill.PUSH:
+			return AbilityDef.new("Толкнуть", Consts.PUSH_MANA, Target.CELL,
+				"отбрасывает соседа на 1 клетку")
+		Consts.Skill.STEP:
+			return AbilityDef.new("Сходить", Consts.STEP_MANA, Target.CELL,
+				"шаг на 1 соседнюю клетку")
+		Consts.Skill.BLOCK:
+			return AbilityDef.new("Блок", Consts.BLOCK_MANA, Target.NONE,
+				"щит: поглощает %d урона в этом раунде" % Consts.BLOCK_AMOUNT)
+		Consts.Skill.SWAP_ALLY:
+			return AbilityDef.new("Рокировка", Consts.SWAP_ALLY_MANA, Target.CELL,
+				"меняется местами с соседним союзником")
+		Consts.Skill.SELF_HEAL:
+			return AbilityDef.new("Хил себе", Consts.SELF_HEAL_MANA, Target.NONE,
+				"восстанавливает себе %d HP" % Consts.SELF_HEAL_AMOUNT)
+		Consts.Skill.MEDITATION:
+			return AbilityDef.new("Медитация", Consts.MEDITATION_MANA, Target.NONE,
+				"+%d маны" % Consts.MEDITATION_GAIN)
 		Consts.Skill.DISORIENT:
 			return AbilityDef.new("Дезориентация", Consts.DISORIENT_MANA, Target.CELL,
 				"враг в радиусе %d: его следующий направленный скилл в этом раунде срабатывает в обратную сторону" % Consts.DISORIENT_RANGE)

@@ -364,8 +364,10 @@ func _draw_stat(ctr: Vector2, value: int, left: bool) -> void:
 	var h := 20.0
 	var x: float = (ctr.x - CELL * 0.5 + 3) if left else (ctr.x + CELL * 0.5 - 3 - w)
 	var y := ctr.y - CELL * 0.5 + 2
+	# HP (слева) — светло-красная, мана (справа) — светло-синяя
+	var col := Color(1.0, 0.55, 0.55) if left else Color(0.55, 0.78, 1.0)
 	draw_rect(Rect2(x, y, w, h), Color(0, 0, 0, 0.55))
-	draw_string(_font, Vector2(x, y + 16), str(value), HORIZONTAL_ALIGNMENT_CENTER, w, 18, Color(0.95, 0.98, 1.0))
+	draw_string(_font, Vector2(x, y + 16), str(value), HORIZONTAL_ALIGNMENT_CENTER, w, 18, col)
 
 
 # Иконки активных эффектов рядком под героем. Рисуются только те, у кого есть арт

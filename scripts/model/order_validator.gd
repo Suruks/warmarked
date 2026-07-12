@@ -38,7 +38,7 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	if u == null or u.owner != player or not u.alive:
 		return false
 	if o.action == Consts.Action.MOVE:
-		return _move_legal(o.path)
+		return _move_legal(o.path, u.move_range())
 	if not (o.action in [Consts.Action.ATTACK, Consts.Action.ABILITY1,
 			Consts.Action.ABILITY2, Consts.Action.ABILITY3]):
 		return false
@@ -47,6 +47,8 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	if seen.has(key):
 		return false
 	var def := HeroDefs.for_action(u.hero_type, o.action, u.skills)
+	if def.passive:
+		return false   # пассивку нельзя активировать
 	if def.slot_gate.size() > 0 and not (slot in def.slot_gate):
 		return false
 	var used: int = spent.get(o.hero_id, 0)
@@ -65,9 +67,9 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	return true
 
 
-# Ход: последовательность единичных орто-шагов, не длиннее MOVE_RANGE.
-static func _move_legal(path: Array) -> bool:
-	if path.size() > Consts.MOVE_RANGE:
+# Ход: последовательность единичных орто-шагов, не длиннее эффективной дальности героя.
+static func _move_legal(path: Array, max_range: int) -> bool:
+	if path.size() > max_range:
 		return false
 	for d in path:
 		if typeof(d) != TYPE_VECTOR2I or not (d in Consts.DIRS4):
@@ -95,7 +97,9 @@ static func _offset(u: Unit, o: Order) -> Vector2i:
 static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 	if action == Consts.Action.ATTACK:
 		match u.hero_type:
-			Consts.HeroType.HUNTER:    # Выстрел: прямая, 2-3
+			Consts.HeroType.HUNTER:    # Выстрел: прямая, 2-3 (Снайпер без движения — любая дальность)
+				if u.has_skill(Consts.Skill.SNIPER) and not u.moved_last_round:
+					return _ray(off) >= 2
 				return _ray(off) >= 2 and _ray(off) <= 3
 			Consts.HeroType.FAIRY:     # Удар: любой из 8 соседей
 				return _cheb(off) == 1
@@ -135,6 +139,8 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _man(off) >= 1 and _man(off) <= Consts.BLEED_RANGE
 		Consts.Skill.SPARK:       # цель на дальности до SPARK_RANGE
 			return _man(off) >= 1 and _man(off) <= Consts.SPARK_RANGE
+		Consts.Skill.LIGHTNING:   # цель на дальности до LIGHTNING_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.LIGHTNING_RANGE
 		Consts.Skill.DISORIENT:   # враг в радиусе DISORIENT_RANGE
 			return _man(off) >= 1 and _man(off) <= Consts.DISORIENT_RANGE
 		Consts.Skill.SHACKLES:    # враг в радиусе SHACKLES_RANGE
@@ -147,6 +153,12 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _man(off) >= 1 and _man(off) <= Consts.TELEPORT_RANGE
 		Consts.Skill.REVIVE:      # любая клетка (радиус не ограничен; могила проверяется в резолве)
 			return off != Vector2i.ZERO
+		Consts.Skill.PUSH:        # орто-сосед
+			return _man(off) == 1
+		Consts.Skill.STEP:        # орто-сосед
+			return _man(off) == 1
+		Consts.Skill.SWAP_ALLY:   # соседний (8 сторон)
+			return _cheb(off) == 1
 	return false
 
 

@@ -61,9 +61,8 @@ static func candidates(state: MatchState, unit: Unit, action: int, origin: Vecto
 	match action:
 		Consts.Action.MOVE:
 			var out: Array[Vector2i] = []
-			# замедление снижает дальность хода на этапе планирования
-			var rng := Consts.MOVE_RANGE - (Consts.SLOW_MOVE_PENALTY if unit.slow_turns > 0 else 0)
-			for c in move_paths(state, origin, unit.id, occ, rng).keys():
+			# дальность хода = move_range() (учёт «Лёгкость» и «Замедление»)
+			for c in move_paths(state, origin, unit.id, occ, unit.move_range()).keys():
 				out.append(c)
 			return out
 		Consts.Action.ATTACK:
@@ -89,22 +88,15 @@ static func _ring(board: Board, origin: Vector2i, min_r: int, max_r: int, out: A
 				out.append(c)
 
 
-# Есть ли враг (по occ — плановая занятость) в одной из 8 соседних клеток origin.
-static func _enemy_adjacent(origin: Vector2i, owner: int, occ: Dictionary) -> bool:
-	for d in Consts.DIRS8:
-		var e = _at(occ, origin + d)
-		if e != null and e.owner != owner:
-			return true
-	return false
-
-
 static func _basic_attack_cells(state: MatchState, unit: Unit, origin: Vector2i) -> Array[Vector2i]:
 	var board := state.board
 	var out: Array[Vector2i] = []
 	match unit.hero_type:
 		Consts.HeroType.HUNTER:
+			# «Снайпер»: если не двигался в прошлом раунде — дальность не ограничена
+			var max_r := Consts.BOARD_W if (unit.has_skill(Consts.Skill.SNIPER) and not unit.moved_last_round) else 3
 			for d in Consts.DIRS4:
-				for r in [2, 3]:
+				for r in range(2, max_r + 1):
 					var c: Vector2i = origin + d * r
 					if board.is_passable(c) and board.is_clear_line(origin, c):
 						out.append(c)
@@ -195,6 +187,8 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 			_ring(board, origin, 1, Consts.BLEED_RANGE, out)
 		Consts.Skill.SPARK:  # цель на дальности до SPARK_RANGE
 			_ring(board, origin, 1, Consts.SPARK_RANGE, out)
+		Consts.Skill.LIGHTNING:  # цель на дальности до LIGHTNING_RANGE
+			_ring(board, origin, 1, Consts.LIGHTNING_RANGE, out)
 		Consts.Skill.DISORIENT:  # враг в радиусе DISORIENT_RANGE
 			_ring(board, origin, 1, Consts.DISORIENT_RANGE, out)
 		Consts.Skill.SHACKLES:  # враг в радиусе SHACKLES_RANGE
@@ -219,12 +213,27 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 			for du in state.units:
 				if not du.alive and du.owner == unit.owner:
 					out.append(du.cell)
+		Consts.Skill.PUSH:  # орто-сосед (толкаем того, кто там)
+			for d in Consts.DIRS4:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.STEP:  # свободная орто-соседняя клетка
+			for d in Consts.DIRS4:
+				var c: Vector2i = origin + d
+				if board.is_passable(c) and _at(occ, c) == null:
+					out.append(c)
+		Consts.Skill.SWAP_ALLY:  # соседний (8) союзник
+			for d in Consts.DIRS8:
+				var c: Vector2i = origin + d
+				var e = _at(occ, c)
+				if board.is_passable(c) and e != null and e.owner == unit.owner:
+					out.append(c)
 		Consts.Skill.MINEFIELD:  # центр поля в радиусе MINEFIELD_RANGE (манхэттен)
 			_ring(board, origin, 1, Consts.MINEFIELD_RANGE, out)
-		Consts.Skill.RETREAT:  # путь до RETREAT_RANGE, только если рядом есть враг
-			if _enemy_adjacent(origin, unit.owner, occ):
-				for c in move_paths(state, origin, unit.id, occ, Consts.RETREAT_RANGE).keys():
-					out.append(c)
+		Consts.Skill.RETREAT:  # путь до RETREAT_RANGE (наличие врага рядом проверяется в резолве)
+			for c in move_paths(state, origin, unit.id, occ, Consts.RETREAT_RANGE).keys():
+				out.append(c)
 		Consts.Skill.OVERLOAD:  # любой орто-сосед (как Натиск — целим вслепую)
 			for d in Consts.DIRS4:
 				var c: Vector2i = origin + d

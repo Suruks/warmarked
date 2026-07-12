@@ -63,6 +63,7 @@ func _initialize() -> void:
 	test_bleed_no_tick_without_move()
 	test_bleed_expires_after_turns()
 	test_spark_hits_target()
+	test_lightning_hits_harder()
 	test_disorient_reverses_direction()
 	test_manasteal_steals_and_damages()
 	test_shackles_blocks_basic_attack()
@@ -70,6 +71,20 @@ func _initialize() -> void:
 	test_teleport_moves_self()
 	test_teleport_blocked_when_occupied()
 	test_revive_raises_fallen_ally()
+	test_sniper_validator_allows_far_shot()
+	test_cold_blood_mana_on_kill()
+	test_blessing_heals_allies_in_radius()
+	test_lightness_move_range_3()
+	test_crystal_shell_reduces_first_hit_only()
+	test_death_nova_hits_neighbors()
+	test_passive_cannot_be_activated()
+	test_neutral_push_knocks_neighbor()
+	test_neutral_step_moves_one()
+	test_neutral_block_absorbs()
+	test_neutral_swap_ally()
+	test_neutral_self_heal()
+	test_neutral_meditation()
+	test_neutral_allowed_on_any_hero()
 	test_second_player_skips_last_slot()
 	test_validator_drops_second_player_last_slot()
 	test_reflexes_dodges_and_gains_mana()
@@ -1027,6 +1042,18 @@ func test_spark_hits_target() -> void:
 	_check(v.hp == 10 - Consts.SPARK_DMG, "искра: урон %d, HP %d [%d]" % [Consts.SPARK_DMG, 10 - Consts.SPARK_DMG, v.hp])
 
 
+func test_lightning_hits_harder() -> void:
+	# Молния: как искра, но LIGHTNING_DMG урона
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(3, 4), Consts.Skill.LIGHTNING)   # A fairy
+	f.mana = Consts.LIGHTNING_MANA
+	var v := _place(s, 3, Vector2i(3, 2), 10)                     # B hunter на дальности 2
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 10 - Consts.LIGHTNING_DMG, "молния: урон %d, HP %d [%d]" % [Consts.LIGHTNING_DMG, 10 - Consts.LIGHTNING_DMG, v.hp])
+
+
 func test_disorient_reverses_direction() -> void:
 	# Дезориентация: направленная атака цели разворачивается на этом ходу
 	var s := _fresh()   # A первый
@@ -1127,6 +1154,184 @@ func test_revive_raises_fallen_ally() -> void:
 	_check(dead.alive, "возрождение: союзник ожил (могила вдали)")
 	_check(dead.hp == dead.max_hp, "возрождение: полный HP [%d/%d]" % [dead.hp, dead.max_hp])
 	_check(dead.cell == Vector2i(2, 4), "возрождение: поднят в соседней с могилой клетке (2,4) [%s]" % dead.cell)
+
+
+# ---------------------------------------------------------------- пассивки
+
+func test_sniper_validator_allows_far_shot() -> void:
+	# Снайпер: не двигался в прошлом раунде -> дальний выстрел разрешён; после движения — нет
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(0, 4))
+	h.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SHOTGUN]
+	h.moved_last_round = false
+	var o := _slots()
+	o[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(6, 4))   # дальность 6 по прямой
+	_check(not OrderValidator.sanitize(s, o, Consts.Player.A)[0].is_empty(),
+		"снайпер: дальний выстрел разрешён (не двигался)")
+	h.moved_last_round = true
+	_check(OrderValidator.sanitize(s, o, Consts.Player.A)[0].is_empty(),
+		"снайпер: после движения дальний выстрел отклонён")
+
+
+func test_cold_blood_mana_on_kill() -> void:
+	# Хладнокровие: убийца получает COLD_BLOOD_MANA маны
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.COLD_BLOOD, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h.mana = 0
+	var v := _place(s, 3, Vector2i(3, 2), 1)   # враг на дальности 2, 1 HP
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(not v.alive, "хладнокровие: враг убит")
+	_check(h.mana == Consts.COLD_BLOOD_MANA, "хладнокровие: +%d маны за килл [%d]" % [Consts.COLD_BLOOD_MANA, h.mana])
+
+
+func test_blessing_heals_allies_in_radius() -> void:
+	# Благословение: в начале раунда +BLESSING_HEAL HP союзникам в радиусе 1; себя и дальних — нет
+	var s := _fresh()
+	var f := _place(s, 1, Vector2i(3, 3))
+	f.skills = [Consts.Skill.BLESSING, Consts.Skill.CANCEL, Consts.Skill.HEAL]
+	f.hp = f.max_hp - 2
+	var ally := _place(s, 2, Vector2i(3, 4), 5)   # A crystal — сосед
+	var far := _place(s, 0, Vector2i(6, 6), 5)     # A hunter — далеко
+	s.begin_round()
+	_check(ally.hp == 5 + Consts.BLESSING_HEAL, "благословение: сосед-союзник +%d [%d]" % [Consts.BLESSING_HEAL, ally.hp])
+	_check(f.hp == f.max_hp - 2, "благословение: сама Фея НЕ лечится [%d]" % f.hp)
+	_check(far.hp == 5, "благословение: дальний союзник не лечится [%d]" % far.hp)
+
+
+func test_lightness_move_range_3() -> void:
+	# Лёгкость: дальность хода = 3
+	var s := _fresh()
+	var f := _place(s, 1, Vector2i(0, 6))
+	f.skills = [Consts.Skill.LIGHTNESS, Consts.Skill.CANCEL, Consts.Skill.HEAL]
+	_check(f.move_range() == Consts.LIGHTNESS_MOVE_RANGE, "лёгкость: move_range = %d [%d]" % [Consts.LIGHTNESS_MOVE_RANGE, f.move_range()])
+	var oa := _slots()
+	oa[0] = Order.make_move(1, [Vector2i(0, -1), Vector2i(0, -1), Vector2i(0, -1)] as Array[Vector2i])
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(f.cell == Vector2i(0, 3), "лёгкость: прошёл 3 клетки [%s]" % f.cell)
+
+
+func test_crystal_shell_reduces_first_hit_only() -> void:
+	# Кристальный панцирь: первый урон за раунд -1, второй — полный
+	var s := _fresh()
+	var c := _place(s, 5, Vector2i(3, 4), 10)
+	c.skills = [Consts.Skill.CRYSTAL_SHELL, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	_place(s, 2, Vector2i(4, 4))   # A crystal — удар 3 (срежется до 2)
+	_place(s, 1, Vector2i(2, 4))   # A fairy — удар 2 (полный)
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 4))
+	oa[1] = Order.make(1, Consts.Action.ATTACK, Vector2i(3, 4))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	var expect := 10 - (Consts.CRYSTAL_ATK_DMG - Consts.SHELL_REDUCTION) - Consts.FAIRY_ATK_DMG
+	_check(c.hp == expect, "панцирь: только первый урон -1, HP %d [%d]" % [expect, c.hp])
+
+
+func test_death_nova_hits_neighbors() -> void:
+	# Осколки (пассив): при смерти DEATH_NOVA_DMG всем соседям
+	var s := _fresh()
+	var c := _place(s, 5, Vector2i(3, 3), 2)
+	c.skills = [Consts.Skill.DEATH_NOVA, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	var atk := _place(s, 2, Vector2i(3, 4), 20)   # A crystal, добьёт c (и сам сосед)
+	var bystander := _place(s, 1, Vector2i(2, 3), 20)   # A fairy — сосед c
+	var oa := _slots()
+	oa[0] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(not c.alive, "осколки-пассив: кристалл убит")
+	_check(atk.hp == 20 - Consts.DEATH_NOVA_DMG, "осколки-пассив: сосед-атакующий задет [%d]" % atk.hp)
+	_check(bystander.hp == 20 - Consts.DEATH_NOVA_DMG, "осколки-пассив: сосед задет [%d]" % bystander.hp)
+
+
+func test_passive_cannot_be_activated() -> void:
+	# Пассивку нельзя активировать: приказ ABILITY на неё срезается валидатором
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SHOTGUN]   # ABILITY1 = Снайпер (пассив)
+	h.mana = 5
+	var o := _slots()
+	o[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 3))
+	_check(OrderValidator.sanitize(s, o, Consts.Player.A)[0].is_empty(),
+		"пассив: активация отклонена валидатором")
+
+
+# ---------------------------------------------------------------- нейтральные скиллы
+
+func test_neutral_push_knocks_neighbor() -> void:
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.PUSH, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h.mana = Consts.PUSH_MANA
+	var v := _place(s, 3, Vector2i(3, 3))   # сосед сверху
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.cell == Vector2i(3, 2), "толкнуть: сосед отброшен на (3,2) [%s]" % v.cell)
+
+
+func test_neutral_step_moves_one() -> void:
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.STEP, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(2, 4))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(h.cell == Vector2i(2, 4), "сходить: шаг на (2,4) [%s]" % h.cell)
+
+
+func test_neutral_block_absorbs() -> void:
+	var s := _fresh()
+	var c := _place(s, 5, Vector2i(3, 3), 10)
+	c.skills = [Consts.Skill.BLOCK, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	c.mana = Consts.BLOCK_MANA
+	_place(s, 2, Vector2i(3, 4))   # A crystal — удар 3
+	var ob := _slots(); ob[0] = Order.make(5, Consts.Action.ABILITY1)   # блок (слот 1)
+	var oa := _slots(); oa[1] = Order.make(2, Consts.Action.ATTACK, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(c.hp == 10, "блок: урон поглощён [%d]" % c.hp)
+	_check(c.block_amount == Consts.BLOCK_AMOUNT - Consts.CRYSTAL_ATK_DMG, "блок: остаток запаса [%d]" % c.block_amount)
+
+
+func test_neutral_swap_ally() -> void:
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.SWAP_ALLY, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h.mana = Consts.SWAP_ALLY_MANA
+	var ally := _place(s, 1, Vector2i(3, 3))   # A fairy — сосед
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(h.cell == Vector2i(3, 3) and ally.cell == Vector2i(3, 4), "рокировка: поменялись местами")
+
+
+func test_neutral_self_heal() -> void:
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4), 3)
+	h.skills = [Consts.Skill.SELF_HEAL, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h.mana = Consts.SELF_HEAL_MANA
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(h.hp == 3 + Consts.SELF_HEAL_AMOUNT, "хил себе: +%d HP [%d]" % [Consts.SELF_HEAL_AMOUNT, h.hp])
+
+
+func test_neutral_meditation() -> void:
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.MEDITATION, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h.mana = 0
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(h.mana == Consts.MEDITATION_GAIN, "медитация: +%d маны [%d]" % [Consts.MEDITATION_GAIN, h.mana])
+
+
+func test_neutral_allowed_on_any_hero() -> void:
+	# Нейтрал годится в кит любого героя (санитайзер не режет)
+	var kit := Loadout.sanitize_hero(Consts.HeroType.HUNTER,
+		[Consts.Skill.PUSH, Consts.Skill.MEDITATION, Consts.Skill.TRAP])
+	_check(kit == [Consts.Skill.PUSH, Consts.Skill.MEDITATION, Consts.Skill.TRAP],
+		"нейтрал: принят в кит Охотника [%s]" % str(kit))
 
 
 func test_second_player_skips_last_slot() -> void:

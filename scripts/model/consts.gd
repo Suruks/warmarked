@@ -21,6 +21,11 @@ enum Skill {
 	BLEED,                                                     # Охотник — кровавый след
 	SPARK, DISORIENT, MANASTEAL, SHACKLES, SLOW,               # Фея — новые
 	TELEPORT, REVIVE,                                          # Фея — телепорт и возрождение
+	LIGHTNING,                                                 # Фея — молния
+	SNIPER, COLD_BLOOD,                                        # Охотник — пассивки
+	BLESSING, LIGHTNESS,                                       # Фея — пассивки
+	CRYSTAL_SHELL, DEATH_NOVA,                                 # Кристалкайнд — пассивки
+	PUSH, STEP, BLOCK, SWAP_ALLY, SELF_HEAL, MEDITATION,       # Нейтральные (любому герою)
 }
 
 const SKILLS_PER_HERO := 3
@@ -30,7 +35,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 9
+const PROTOCOL_VERSION := 12
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -143,6 +148,30 @@ const FLASH_DMG := 3
 const SPARK_MANA := 1
 const SPARK_DMG := 3
 const SPARK_RANGE := 2
+
+# Молния: как Искра, но дороже и сильнее
+const LIGHTNING_MANA := 3
+const LIGHTNING_DMG := 5
+const LIGHTNING_RANGE := 2
+
+# --- Пассивные способности (занимают слот кита, но не активируются и не стоят маны) ---
+const COLD_BLOOD_MANA := 2         # Хладнокровие: +мана за килл
+const BLESSING_HEAL := 1           # Благословение: лечение союзников в радиусе 1 в начале раунда
+const SHELL_REDUCTION := 1         # Кристальный панцирь: первый урон за раунд меньше на столько
+const DEATH_NOVA_DMG := 5          # Осколки (пассив): урон всем соседям при смерти
+const LIGHTNESS_MOVE_RANGE := 3    # Лёгкость: дальность хода Феи
+
+# --- Нейтральные скиллы (общий пул, доступны любому герою) ---
+const PUSH_MANA := 1               # Толкнуть: отброс соседа на 1
+const STEP_MANA := 0               # Сходить: ход
+const STEP_RANGE := 2              # на сколько клеток
+const BLOCK_MANA := 1              # Блок: щит-буфер
+const BLOCK_AMOUNT := 4            # сколько урона поглощает Блок
+const SWAP_ALLY_MANA := 1          # Рокировка: обмен местами с соседним союзником
+const SELF_HEAL_MANA := 1
+const SELF_HEAL_AMOUNT := 3        # Хил себе: +HP
+const MEDITATION_MANA := 0
+const MEDITATION_GAIN := 1         # Медитация: +мана
 
 # Дезориентация: враг в радиусе DISORIENT_RANGE; его следующий НАПРАВЛЕННЫЙ скилл в этом
 # раунде срабатывает в обратную сторону (одноразово)

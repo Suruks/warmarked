@@ -449,6 +449,8 @@ func _skill_usable(u: Unit, action: int) -> bool:
 	if action == Consts.Action.ATTACK:
 		return true
 	var ad := HeroDefs.for_action(u.hero_type, action, u.skills)
+	if ad.passive:
+		return false   # пассивку нельзя взвести — она работает сама
 	if ad.slot_gate.size() > 0 and not (_active in ad.slot_gate):
 		return false
 	return u.mana - _reserved_for(u.id, _active) >= ad.mana
