@@ -54,10 +54,13 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	var used: int = spent.get(o.hero_id, 0)
 	if used + def.mana > u.mana:
 		return false
-	# Отступление несёт путь (как ход), а не одиночное смещение — валидируем шаги
+	# Отступление и Сходить несут путь (как ход), а не одиночное смещение — валидируем шаги
 	var skill := HeroDefs.skill_of_action(u.hero_type, o.action, u.skills)
 	if skill == Consts.Skill.RETREAT:
-		if not _retreat_path_legal(o.path):
+		if not _path_legal(o.path, Consts.RETREAT_RANGE):
+			return false
+	elif skill == Consts.Skill.STEP:
+		if not _path_legal(o.path, Consts.STEP_RANGE):
 			return false
 	elif def.target != HeroDefs.Target.NONE and not _target_legal(u, o.action, _offset(u, o)):
 		return false
@@ -77,9 +80,9 @@ static func _move_legal(path: Array, max_range: int) -> bool:
 	return true
 
 
-# Отступление: непустой путь орто-шагов, не длиннее RETREAT_RANGE.
-static func _retreat_path_legal(path: Array) -> bool:
-	if path.size() < 1 or path.size() > Consts.RETREAT_RANGE:
+# Путь-способность (Отступление/Сходить): непустой путь орто-шагов, не длиннее max_range.
+static func _path_legal(path: Array, max_range: int) -> bool:
+	if path.size() < 1 or path.size() > max_range:
 		return false
 	for d in path:
 		if typeof(d) != TYPE_VECTOR2I or not (d in Consts.DIRS4):
@@ -154,8 +157,6 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 		Consts.Skill.REVIVE:      # любая клетка (радиус не ограничен; могила проверяется в резолве)
 			return off != Vector2i.ZERO
 		Consts.Skill.PUSH:        # орто-сосед
-			return _man(off) == 1
-		Consts.Skill.STEP:        # орто-сосед
 			return _man(off) == 1
 		Consts.Skill.SWAP_ALLY:   # соседний (8 сторон)
 			return _cheb(off) == 1

@@ -218,11 +218,9 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 				var c: Vector2i = origin + d
 				if board.is_passable(c):
 					out.append(c)
-		Consts.Skill.STEP:  # свободная орто-соседняя клетка
-			for d in Consts.DIRS4:
-				var c: Vector2i = origin + d
-				if board.is_passable(c) and _at(occ, c) == null:
-					out.append(c)
+		Consts.Skill.STEP:  # ход по пути до STEP_RANGE клеток
+			for c in move_paths(state, origin, unit.id, occ, Consts.STEP_RANGE).keys():
+				out.append(c)
 		Consts.Skill.SWAP_ALLY:  # соседний (8) союзник
 			for d in Consts.DIRS8:
 				var c: Vector2i = origin + d

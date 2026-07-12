@@ -280,9 +280,9 @@ func _commit(cell: Vector2i) -> void:
 	var origin := _origin_for(_pending_hero, _active)
 	if _pending_action == Consts.Action.MOVE:
 		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy()).get(cell, [])
-	elif _pending_skill() == Consts.Skill.RETREAT:
-		# Отступление — путь, как ход, но дальностью RETREAT_RANGE
-		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), Consts.RETREAT_RANGE).get(cell, [])
+	elif _is_path_skill(_pending_skill()):
+		# Отступление/Сходить — путь, как ход, но своей дальностью
+		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), _path_skill_range(_pending_skill())).get(cell, [])
 	_write_slot(_active, _pending_hero, _pending_action, cell, path)
 	_advance_active()
 	_clear_pending()
@@ -483,6 +483,15 @@ func _needs_target(unit: Unit, action: int) -> bool:
 	return HeroDefs.for_action(unit.hero_type, action, unit.skills).target != HeroDefs.Target.NONE
 
 
+# Скиллы, несущие относительный путь (как ход): Отступление и Сходить
+func _is_path_skill(skill: int) -> bool:
+	return skill == Consts.Skill.RETREAT or skill == Consts.Skill.STEP
+
+
+func _path_skill_range(skill: int) -> int:
+	return Consts.RETREAT_RANGE if skill == Consts.Skill.RETREAT else Consts.STEP_RANGE
+
+
 # Скилл за текущим нацеливаемым действием (или за действием в слоте i)
 func _pending_skill() -> int:
 	if _pending_hero < 0:
@@ -547,7 +556,7 @@ func _origin_for(hero_id: int, upto_slot: int) -> Vector2i:
 				pos = slot_target[j]
 			Consts.Skill.ONSLAUGHT:   # занимает клетку отброшенного врага
 				pos = slot_target[j]
-			Consts.Skill.RETREAT:     # уходит в конец пути (целевая клетка)
+			Consts.Skill.RETREAT, Consts.Skill.STEP:   # путь-скилл: уходит в конец пути
 				pos = slot_target[j]
 	return pos
 
@@ -594,8 +603,8 @@ func _on_done() -> void:
 				steps.append(c - prev)
 				prev = c
 			orders.append(Order.make_move(slot_hero[i], steps))
-		elif _slot_skill(i) == Consts.Skill.RETREAT:
-			# Отступление — способность, несущая относительный путь (как ход)
+		elif _is_path_skill(_slot_skill(i)):
+			# Отступление/Сходить — способность, несущая относительный путь (как ход)
 			var steps: Array[Vector2i] = []
 			var prev: Vector2i = _origin_for(slot_hero[i], i)
 			for c in slot_path[i]:

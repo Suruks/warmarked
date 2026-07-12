@@ -351,7 +351,7 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.TELEPORT: _sk_teleport(state, unit, et, events)
 		Consts.Skill.REVIVE: _sk_revive(state, unit, et, events)
 		Consts.Skill.PUSH: _sk_push(state, unit, et, events)
-		Consts.Skill.STEP: _sk_step(state, unit, et, events)
+		Consts.Skill.STEP: _sk_step(state, unit, order, events)
 		Consts.Skill.BLOCK: _sk_block(state, unit, events)
 		Consts.Skill.SWAP_ALLY: _sk_swap_ally(state, unit, et, events)
 		Consts.Skill.SELF_HEAL: _sk_self_heal(state, unit, events)
@@ -662,16 +662,9 @@ func _sk_push(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 	_knockback(state, v, _dir_sign(v.cell - unit.cell), unit.owner, events)
 
 
-# Сходить — шаг на 1 свободную соседнюю клетку
-func _sk_step(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
-	if _manhattan(unit.cell, et) != 1:
-		_push(events, state, Consts.EventType.FIZZLE, "Сходить: только соседняя клетка")
-		return
-	if not state.board.is_passable(et) or state.unit_at(et) != null:
-		_push(events, state, Consts.EventType.FIZZLE, "Сходить: клетка (%d,%d) занята" % [et.x, et.y])
-		return
-	_enter(state, unit, et, events, unit.owner, Consts.EventType.MOVE,
-		"%s делает шаг на (%d,%d)" % [unit.full_name(), et.x, et.y])
+# Сходить — ход по относительному пути до STEP_RANGE клеток (как обычный ход)
+func _sk_step(state: MatchState, unit: Unit, order: Order, events: Array) -> void:
+	_walk_path(state, unit, order.path, events)
 
 
 # Блок — щит-буфер: поглощает урон в этом раунде

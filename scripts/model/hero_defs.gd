@@ -179,8 +179,8 @@ static func skill_def(skill: int) -> AbilityDef:
 			return AbilityDef.new("Толкнуть", Consts.PUSH_MANA, Target.CELL,
 				"отбрасывает соседа на 1 клетку")
 		Consts.Skill.STEP:
-			return AbilityDef.new("Сходить", Consts.STEP_MANA, Target.CELL,
-				"шаг на 1 соседнюю клетку")
+			return AbilityDef.new("Сходить", Consts.STEP_MANA, Target.MOVE_PATH,
+				"ход на %d клетки" % Consts.STEP_RANGE)
 		Consts.Skill.BLOCK:
 			return AbilityDef.new("Блок", Consts.BLOCK_MANA, Target.NONE,
 				"щит: поглощает %d урона в этом раунде" % Consts.BLOCK_AMOUNT)

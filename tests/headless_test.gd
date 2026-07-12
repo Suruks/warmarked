@@ -79,7 +79,7 @@ func _initialize() -> void:
 	test_death_nova_hits_neighbors()
 	test_passive_cannot_be_activated()
 	test_neutral_push_knocks_neighbor()
-	test_neutral_step_moves_one()
+	test_neutral_step_moves_two()
 	test_neutral_block_absorbs()
 	test_neutral_swap_ally()
 	test_neutral_self_heal()
@@ -1269,14 +1269,16 @@ func test_neutral_push_knocks_neighbor() -> void:
 	_check(v.cell == Vector2i(3, 2), "толкнуть: сосед отброшен на (3,2) [%s]" % v.cell)
 
 
-func test_neutral_step_moves_one() -> void:
+func test_neutral_step_moves_two() -> void:
 	var s := _fresh()
 	var h := _place(s, 0, Vector2i(3, 4))
 	h.skills = [Consts.Skill.STEP, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	var o := Order.new(0, Consts.Action.ABILITY1)
+	o.path = [Vector2i(-1, 0), Vector2i(-1, 0)] as Array[Vector2i]   # влево на 2
 	var oa := _slots()
-	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(2, 4))
+	oa[0] = o
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
-	_check(h.cell == Vector2i(2, 4), "сходить: шаг на (2,4) [%s]" % h.cell)
+	_check(h.cell == Vector2i(1, 4), "сходить: ход на 2 клетки до (1,4) [%s]" % h.cell)
 
 
 func test_neutral_block_absorbs() -> void:

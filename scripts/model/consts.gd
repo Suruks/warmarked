@@ -163,10 +163,10 @@ const LIGHTNESS_MOVE_RANGE := 3    # Лёгкость: дальность ход
 
 # --- Нейтральные скиллы (общий пул, доступны любому герою) ---
 const PUSH_MANA := 1               # Толкнуть: отброс соседа на 1
-const STEP_MANA := 0               # Сходить: ход
+const STEP_MANA := 1               # Сходить: ход
 const STEP_RANGE := 2              # на сколько клеток
-const BLOCK_MANA := 1              # Блок: щит-буфер
-const BLOCK_AMOUNT := 4            # сколько урона поглощает Блок
+const BLOCK_MANA := 0              # Блок: щит-буфер
+const BLOCK_AMOUNT := 3            # сколько урона поглощает Блок
 const SWAP_ALLY_MANA := 1          # Рокировка: обмен местами с соседним союзником
 const SELF_HEAL_MANA := 1
 const SELF_HEAL_AMOUNT := 3        # Хил себе: +HP
@@ -264,7 +264,7 @@ static func hero_name(t: int) -> String:
 	match t:
 		HeroType.HUNTER: return "Охотник"
 		HeroType.FAIRY: return "Фея"
-		HeroType.CRYSTAL: return "Кристалл"
+		HeroType.CRYSTAL: return "Камнешип"
 	return "?"
 
 

@@ -25,6 +25,7 @@ class Cell:
 	var dimmed: bool = false
 	var sz: float = 50.0
 	var _font: Font
+	var _dragging: bool = false
 
 	func setup(p_host, p_mode: String, p_skill: int, p_cls: int, p_trio: int, p_sz: float) -> void:
 		host = p_host
@@ -72,7 +73,16 @@ class Cell:
 		prev.custom_minimum_size = Vector2(sz, sz)
 		prev.size = Vector2(sz, sz)
 		set_drag_preview(prev)
+		_dragging = true
 		return {"skill": skill, "cls": cls, "from": mode, "trio": trio}
+
+	# Конец перетаскивания: скилл из тройки, брошенный мимо (не принят ни слотом, ни областью
+	# троек) — выкидывается из сборки. Так «избавиться» можно броском куда угодно.
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_DRAG_END and _dragging:
+			_dragging = false
+			if mode == "slot" and is_instance_valid(host) and not get_viewport().gui_is_drag_successful():
+				host.remove_from_trio(trio, skill)
 
 	func _can_drop_data(_at: Vector2, data: Variant) -> bool:
 		# Слот тройки поглощает любой перетаскиваемый скилл: сброс ВНУТРИ панели сборки
@@ -210,25 +220,30 @@ func _build_trios() -> void:
 	for t in N_TRIOS:
 		var group := VBoxContainer.new()
 		group.add_theme_constant_override("separation", 4)
+		group.mouse_filter = Control.MOUSE_FILTER_IGNORE   # дроп проходит сквозь к TrioRow (поглощение)
 		row.add_child(group)
 		# шапка: иконка героя + класс (авто по скиллам)
 		var head := HBoxContainer.new()
 		head.alignment = BoxContainer.ALIGNMENT_CENTER
 		head.add_theme_constant_override("separation", 5)
+		head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		group.add_child(head)
 		var icon := TextureRect.new()
 		icon.custom_minimum_size = Vector2(30, 30)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		head.add_child(icon)
 		_trio_icon[t] = icon
 		var lbl := Label.new()
 		lbl.add_theme_font_size_override("font_size", 15)
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		head.add_child(lbl)
 		_trio_label[t] = lbl
 		# 3 слота в ряд
 		var slots := HBoxContainer.new()
 		slots.add_theme_constant_override("separation", 4)
+		slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		group.add_child(slots)
 		_slot_cells[t] = []
 		for i in Consts.SKILLS_PER_HERO:
@@ -294,16 +309,6 @@ func _class_used_elsewhere(cls: int, except_trio: int) -> bool:
 		if t != except_trio and _trio_class_of(t) == cls:
 			return true
 	return false
-
-
-# Сброс скилла из тройки в любую точку ВНЕ панели сборки (корень ловит всё, что не поглотили
-# слоты/область троек) — выкидываем скилл из сборки.
-func _can_drop_data(_at: Vector2, data: Variant) -> bool:
-	return typeof(data) == TYPE_DICTIONARY and data.get("from", "") == "slot"
-
-
-func _drop_data(_at: Vector2, data: Variant) -> void:
-	remove_from_trio(int(data.get("trio", -1)), int(data.get("skill", -1)))
 
 
 # ------------------------------------------------------------- обновление вида
