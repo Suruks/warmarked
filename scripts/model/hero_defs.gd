@@ -138,7 +138,7 @@ static func skill_def(skill: int) -> AbilityDef:
 				"%d урона первому врагу на каждой из 4 прямых линий" % Consts.DEATHCROSS_DMG)
 		Consts.Skill.MINEFIELD:
 			return AbilityDef.new("Минное поле", Consts.MINEFIELD_MANA, Target.CELL,
-				"ставит %d мины в радиусе %d вокруг цели; действуют до конца хода, %d урона любому на клетке" \
+				"вручную ставит до %d мин в радиусе %d; каждая до конца хода, %d урона любому на клетке" \
 					% [Consts.MINEFIELD_COUNT, Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_DMG])
 		Consts.Skill.BLEED:
 			return AbilityDef.new("Кровавый след", Consts.BLEED_MANA, Target.CELL,

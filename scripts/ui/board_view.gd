@@ -9,6 +9,10 @@ extends Control
 
 signal cell_clicked(cell: Vector2i)
 signal selected_effects_changed(text: String)   # эффекты выделенного юнита -> панель под очками
+signal cell_hovered(cell: Vector2i)              # курсор над клеткой (без нажатия) — для превью маршрута
+signal drag_started(cell: Vector2i)              # зажали свой токен и повели — начало ручной прокладки
+signal drag_updated(cell: Vector2i)              # курсор во время перетаскивания над клеткой
+signal drag_ended()                              # отпустили — маршрут фиксируется
 
 const CELL := 76
 const PAD := 6
@@ -40,6 +44,14 @@ var _floater_uid := 0
 var _font: Font
 var markers: Array = []
 var ghosts: Array = []
+var routes: Array = []     # [{origin:Vector2i, cells:Array}] — маршруты хода светлой линией
+
+# --- перетаскивание токена (ручная прокладка маршрута) ---
+var _press_cell := Vector2i(-1, -1)   # клетка, на которой нажали ЛКМ
+var _press_active := false            # кнопка зажата, но ещё не решили клик/перетаскивание
+var _dragging := false                # идёт перетаскивание токена
+var _drag_id := -1                    # id перетаскиваемого токена (следует за курсором)
+var _hover_cell := Vector2i(-1, -1)   # последняя клетка под курсором (для дедупликации сигналов)
 
 const COL_BG := Color("1c2029")
 const COL_CELL := Color("2b313d")
@@ -49,6 +61,7 @@ const COL_CP := Color("caa63c")
 const COL_A := Color("4a90d9")
 const COL_B := Color("d95c5c")
 const COL_HL := Color(0.95, 0.85, 0.2, 0.28)
+const COL_ROUTE := Color(0.93, 0.96, 1.0, 0.5)   # светлая полупрозрачная линия маршрута
 
 
 func _ready() -> void:
@@ -124,6 +137,16 @@ func set_ghosts(g: Array) -> void:
 func set_markers(m: Array) -> void:
 	markers = m
 	queue_redraw()
+
+
+func set_routes(r: Array) -> void:
+	routes = r
+	queue_redraw()
+
+
+# id токена, который сейчас «в руке» и рисуется у курсора (для планировщика)
+func dragging_id() -> int:
+	return _drag_id if _dragging else -1
 
 
 var selected_unit_id := -1
@@ -246,11 +269,73 @@ func _drop_float(uid: int) -> void:
 # ------------------------------------------------------------- ввод
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var screen := Vector2i(int(event.position.x) / CELL, int(event.position.y) / CELL)
-		var c := _flip_cell(screen)   # экран → реальные (флип — сам себе обратный)
-		if board != null and board.in_bounds(c):
-			cell_clicked.emit(c)
+	if board == null:
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		var c := _cell_at(event.position)
+		if event.pressed:
+			if not board.in_bounds(c):
+				return
+			_press_cell = c
+			_press_active = true
+			_dragging = false
+		else:   # отпустили ЛКМ
+			if _dragging:
+				_end_drag()
+			elif _press_active and _press_cell == c and board.in_bounds(c):
+				cell_clicked.emit(c)   # без перетаскивания — обычный клик
+			_press_active = false
+	elif event is InputEventMouseMotion:
+		var c := _cell_at(event.position)
+		# начать перетаскивание: кнопка зажата на своём токене и курсор ушёл на другую клетку
+		if _press_active and not _dragging and c != _press_cell and _own_unit_at(_press_cell) >= 0:
+			_dragging = true
+			_drag_id = _own_unit_at(_press_cell)
+			drag_started.emit(_press_cell)
+		if _dragging:
+			if _drag_id >= 0:
+				vis[_drag_id] = event.position   # токен «в руке» следует за курсором
+			if board.in_bounds(c) and c != _hover_cell:
+				_hover_cell = c
+				drag_updated.emit(c)
+			queue_redraw()
+		elif board.in_bounds(c) and c != _hover_cell:
+			_hover_cell = c
+			cell_hovered.emit(c)
+
+
+func _end_drag() -> void:
+	drag_ended.emit()
+	if _drag_id >= 0:
+		vis[_drag_id] = _scell(cell_of(_drag_id))   # вернуть токен на его реальную клетку
+	_dragging = false
+	_drag_id = -1
+	_press_active = false
+	queue_redraw()
+
+
+func _cell_at(pos: Vector2) -> Vector2i:
+	var screen := Vector2i(int(pos.x) / CELL, int(pos.y) / CELL)
+	return _flip_cell(screen)   # экран → реальные (флип — сам себе обратный)
+
+
+# id живого юнита ТЕКУЩЕГО игрока на клетке, иначе -1 (кого можно тащить)
+func _own_unit_at(cell: Vector2i) -> int:
+	for u in snap.get("units", []):
+		if u.alive and u.cell == cell and u.owner == my_player:
+			return u.id
+	return -1
+
+
+# Тултип: наведение на могилу показывает класс лежащего здесь героя.
+func _get_tooltip(at_position: Vector2) -> String:
+	if board == null:
+		return ""
+	var c := _cell_at(at_position)
+	for u in snap.get("units", []):
+		if not u.get("alive", true) and u.cell == c:
+			return "Могила: %s" % Consts.hero_name(u.type)
+	return ""
 
 
 # ------------------------------------------------------------- отрисовка
@@ -277,6 +362,7 @@ func _draw() -> void:
 		]), COL_CP, 2.0)
 	for h in highlights:
 		draw_rect(_cell_rect(h), COL_HL)
+	_draw_routes()
 	for t in snap.get("traps", []):
 		_draw_hazard(t.cell, Icons.for_skill(Consts.Skill.TRAP), t.owner)
 	for a in snap.get("ambushes", []):
@@ -333,11 +419,13 @@ func _draw_grave(u: Dictionary) -> void:
 	else:
 		draw_string(_font, ctr + Vector2(-16, 6), "RIP", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.7, 0.7, 0.75))
 	draw_arc(ctr, CELL * 0.40, 0, TAU, 28, Color(owner_col.r, owner_col.g, owner_col.b, 0.6), 2.0)
-	# счётчик раундов до воскрешения
+	# сколько ходов ждать воскрешения — просто цифрой ровно по центру камня, на тёмной подложке
 	var t: int = u.get("dead_timer", 0)
 	if t > 0:
-		draw_string(_font, Vector2(ctr.x - 26, ctr.y + CELL * 0.30), "респ %d" % t,
-			HORIZONTAL_ALIGNMENT_CENTER, 52, 14, Color(0.85, 0.85, 0.9))
+		var fs := 24
+		draw_circle(ctr, 15.0, Color(0, 0, 0, 0.6))
+		draw_string(_font, Vector2(ctr.x - 40, ctr.y + fs * 0.35), str(t),
+			HORIZONTAL_ALIGNMENT_CENTER, 80, fs, Color(0.96, 0.97, 1.0))
 
 
 func _draw_unit(u: Dictionary) -> void:
@@ -472,6 +560,22 @@ func _draw_icon(ctr: Vector2, hero_type: int, alpha: float) -> void:
 		draw_texture_rect(tex, Rect2(ctr - Vector2(s, s) * 0.5, Vector2(s, s)), false, Color(1, 1, 1, alpha))
 	else:
 		draw_circle(ctr, CELL * 0.34, Color(0.5, 0.5, 0.5, alpha))
+
+
+# Маршрут хода: светлая полупрозрачная линия от origin через все клетки пути + точка на конце.
+func _draw_routes() -> void:
+	for r in routes:
+		var cells: Array = r.get("cells", [])
+		if cells.is_empty():
+			continue
+		var pts := PackedVector2Array()
+		pts.append(_scell(r.origin))
+		for c in cells:
+			pts.append(_scell(c))
+		if pts.size() < 2:
+			continue
+		draw_polyline(pts, COL_ROUTE, 5.0, true)
+		draw_circle(pts[pts.size() - 1], 7.0, COL_ROUTE)
 
 
 # Мелкие иконки нацеленных скиллов в клетках (напоминание на время планирования)

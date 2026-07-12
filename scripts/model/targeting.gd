@@ -55,6 +55,35 @@ static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: D
 	return result
 
 
+# Ручная прокладка маршрута перетаскиванием. path — уже пройденные клетки (без origin).
+# Возвращает обновлённый path после того, как курсор оказался над клеткой cell:
+#   • cell == origin           → сброс маршрута в пустой;
+#   • cell уже в пути           → откат до неё (обрезаем «хвост»);
+#   • cell — орто-сосед конца, проходима, свободна, в пределах дальности → добавляем;
+#   • иначе                      → без изменений (курсор «оторвался» — вернётся к концу).
+static func drag_step(state: MatchState, origin: Vector2i, self_id: int, occ: Dictionary, max_range: int, path: Array, cell: Vector2i) -> Array:
+	if occ.is_empty():
+		occ = build_occupancy(state)
+	if cell == origin:
+		return []
+	var idx: int = path.find(cell)
+	if idx >= 0:
+		return path.slice(0, idx + 1)   # откат: оставляем маршрут по эту клетку включительно
+	if path.size() >= max_range:
+		return path
+	var end: Vector2i = path[path.size() - 1] if path.size() > 0 else origin
+	if absi(end.x - cell.x) + absi(end.y - cell.y) != 1:
+		return path                     # только орто-сосед конца
+	if not state.board.is_passable(cell):
+		return path
+	var e = occ.get(cell, null)
+	if e != null and e.id != self_id:
+		return path                     # нельзя вести маршрут сквозь чужой/союзный токен
+	var np: Array = path.duplicate()
+	np.append(cell)
+	return np
+
+
 static func candidates(state: MatchState, unit: Unit, action: int, origin: Vector2i, occ: Dictionary = {}) -> Array[Vector2i]:
 	if occ.is_empty():
 		occ = build_occupancy(state)
@@ -227,8 +256,14 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 				var e = _at(occ, c)
 				if board.is_passable(c) and e != null and e.owner == unit.owner:
 					out.append(c)
-		Consts.Skill.MINEFIELD:  # центр поля в радиусе MINEFIELD_RANGE (манхэттен)
-			_ring(board, origin, 1, Consts.MINEFIELD_RANGE, out)
+		Consts.Skill.MINEFIELD:  # клетка под мину в радиусе 2 (как Капкан); занятое/могилы исключены
+			for dy in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
+				for dx in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
+					var c := origin + Vector2i(dx, dy)
+					var man := absi(dx) + absi(dy)
+					if man >= 1 and man <= Consts.MINEFIELD_RADIUS and board.is_passable(c) \
+							and _at(occ, c) == null and not state.grave_at(c):
+						out.append(c)
 		Consts.Skill.RETREAT:  # путь до RETREAT_RANGE (наличие врага рядом проверяется в резолве)
 			for c in move_paths(state, origin, unit.id, occ, Consts.RETREAT_RANGE).keys():
 				out.append(c)

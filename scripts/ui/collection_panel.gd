@@ -1,11 +1,11 @@
 class_name CollectionPanel
 extends VBoxContainer
 
-## Экран «Коллекция»: собираем отряд из 3 троек по 3 скилла (Охотник/Фея/Кристалл).
-## Сверху — пул скиллов по классам, снизу — 9 слотов (3 тройки). Скиллы перетаскиваются
-## из пула в слоты и обратно (drag&drop). Класс тройки определяется автоматически по первому
-## положенному скиллу; чужой класс в занятую тройку не кладётся; каждый класс — ровно в одной тройке.
-## На диск не пишем — выбор применяется в память по «Сохранить».
+## Экран «Коллекция»: собираем отряд из 3 троек по 3 скилла. Класс каждой тройки — любой
+## (можно взять хоть три Охотника). Сверху — пул скиллов по классам, снизу — 9 слотов (3 тройки).
+## Скиллы перетаскиваются из пула в слоты и обратно (drag&drop). Класс тройки определяется
+## автоматически по первому положенному классовому скиллу; чужой класс в занятую тройку не кладётся.
+## Один и тот же скилл можно давать разным тройкам. На диск не пишем — выбор применяется по «Сохранить».
 
 signal closed
 
@@ -115,10 +115,10 @@ var _err: Label
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 8)
-	# начальное состояние — из текущего лоадаута (по одному классу на тройку)
-	for i in Loadout.HEROES.size():
-		var h: int = Loadout.HEROES[i]
-		_trio_skills[i] = HeroDefs.sorted_by_mana(Loadout.get_skills(h))
+	# начальное состояние — из текущего отряда (произвольный состав, классы могут повторяться)
+	var team := Loadout.get_team()
+	for i in N_TRIOS:
+		_trio_skills[i] = HeroDefs.sorted_by_mana((team[i].skills as Array))
 
 	var title := Label.new()
 	title.text = "Коллекция"
@@ -277,8 +277,8 @@ func can_place(trio: int, data: Dictionary) -> bool:
 	var cls := HeroDefs.hero_of_skill(sk)
 	var tc := _trio_class_of(trio)
 	if tc == -1:
-		return not _class_used_elsewhere(cls, trio)   # класс — ровно в одной тройке
-	return tc == cls                                   # занятая классом тройка — только свой класс
+		return true                # первый классовый скилл задаёт класс тройки (дубликаты классов разрешены)
+	return tc == cls               # в одной тройке — только один класс
 
 
 func place_in_trio(trio: int, skill: int, _cls: int) -> void:
@@ -304,13 +304,6 @@ func show_desc(skill: int) -> void:
 	_desc.text = "\n".join(lines)
 
 
-func _class_used_elsewhere(cls: int, except_trio: int) -> bool:
-	for t in N_TRIOS:
-		if t != except_trio and _trio_class_of(t) == cls:
-			return true
-	return false
-
-
 # ------------------------------------------------------------- обновление вида
 
 func _refresh() -> void:
@@ -331,15 +324,12 @@ func _refresh() -> void:
 				cell.skill = -1
 				cell.cls = -1
 			cell.queue_redraw()
-	# затемняем в пуле разложенные КЛАССОВЫЕ скиллы (нейтралы можно ставить нескольким героям)
-	var placed := {}
-	for t in N_TRIOS:
-		for sk in _trio_skills[t]:
-			if not HeroDefs.is_neutral(sk):
-				placed[sk] = true
+	# Пул больше ничего не затемняет: любой скилл можно дать нескольким тройкам
+	# (в т.ч. одинаковый класс — например, три Охотника со своими китами).
 	for cell in _source_cells:
-		cell.dimmed = (not HeroDefs.is_neutral(cell.skill)) and placed.has(cell.skill)
-		cell.queue_redraw()
+		if cell.dimmed:
+			cell.dimmed = false
+			cell.queue_redraw()
 
 
 func _on_save() -> void:
@@ -347,6 +337,8 @@ func _on_save() -> void:
 		if _trio_class_of(t) < 0 or (_trio_skills[t] as Array).size() != Consts.SKILLS_PER_HERO:
 			_err.text = "В каждом отряде — 3 скилла и хотя бы один классовый"
 			return
+	var team: Array = []
 	for t in N_TRIOS:
-		Loadout.set_skills(_trio_class_of(t), _trio_skills[t])
+		team.append({"type": _trio_class_of(t), "skills": (_trio_skills[t] as Array).duplicate()})
+	Loadout.set_team(team)
 	closed.emit()

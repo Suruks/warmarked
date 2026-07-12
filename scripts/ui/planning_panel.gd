@@ -40,11 +40,16 @@ var slot_hero: Array = [-1, -1, -1, -1]
 var slot_action: Array = [Consts.Action.EMPTY, Consts.Action.EMPTY, Consts.Action.EMPTY, Consts.Action.EMPTY]
 var slot_target: Array = [Vector2i(-1, -1), Vector2i(-1, -1), Vector2i(-1, -1), Vector2i(-1, -1)]
 var slot_path: Array = [[], [], [], []]
+var slot_cells: Array = [[], [], [], []]   # только для мультиклеточных скиллов (Минное поле): выбранные клетки
 
 var _active: int = 0
 var _view_id: int = -1     # чей китбар показан (может быть враг)
 var _pending_action: int = Consts.Action.EMPTY   # выбранное, но не подтверждённое действие
 var _pending_hero: int = -1
+var _pending_cells: Array = []   # накопленные клетки для мультиклеточного нацеливания (Минное поле)
+var _drag_id: int = -1           # герой, которого сейчас тащим (ручная прокладка маршрута)
+var _drag_path: Array = []       # накопленный маршрут перетаскивания (абсолютные клетки, без origin)
+var _hover_route: Array = []     # превью маршрута к наведённой клетке при обычном выборе хода
 var _locked_slot: int = -1       # мой недоступный слот (второй игрок пропускает последний)
 var _opp_locked_slot: int = -1   # недоступный слот соперника (для индикации)
 
@@ -67,15 +72,23 @@ func begin(p_state: MatchState, p_player: int, p_board_view: BoardView) -> void:
 	slot_action = [Consts.Action.EMPTY, Consts.Action.EMPTY, Consts.Action.EMPTY, Consts.Action.EMPTY]
 	slot_target = [Vector2i(-1, -1), Vector2i(-1, -1), Vector2i(-1, -1), Vector2i(-1, -1)]
 	slot_path = [[], [], [], []]
+	slot_cells = [[], [], [], []]
 	# Второй игрок раунда пропускает последний слот (чередование без двойного хода)
 	var me_first := state.first_player_this_round() == player
 	_locked_slot = -1 if me_first else Consts.ORDER_SLOTS - 1
 	_opp_locked_slot = Consts.ORDER_SLOTS - 1 if me_first else -1
 	_active = 0
 	_view_id = -1
+	_drag_id = -1
+	_drag_path = []
+	_hover_route = []
 	board_view.set_selected_unit(-1)
 	if not board_view.cell_clicked.is_connected(_on_cell_clicked):
 		board_view.cell_clicked.connect(_on_cell_clicked)
+		board_view.drag_started.connect(_on_drag_started)
+		board_view.drag_updated.connect(_on_drag_updated)
+		board_view.drag_ended.connect(_on_drag_ended)
+		board_view.cell_hovered.connect(_on_cell_hovered)
 	_build_ui()
 	_refresh()
 
@@ -235,7 +248,10 @@ func _on_cell_clicked(cell: Vector2i) -> void:
 		var pu := state.get_unit(_pending_hero)
 		var origin := _origin_for(_pending_hero, _active)
 		var cands := Targeting.candidates(state, pu, _pending_action, origin, _planned_occupancy())
-		if cell in cands:
+		if _pending_skill() == Consts.Skill.MINEFIELD:
+			if _pick_mine(cell, cands):
+				return
+		elif cell in cands:
 			_commit(cell)
 			return
 	# 2) выбор юнита (свой или чужой) для просмотра скиллов
@@ -265,6 +281,7 @@ func _arm(action: int) -> void:
 	if _needs_target(u, action):
 		_pending_hero = _view_id
 		_pending_action = action
+		_pending_cells = []
 		var origin := _origin_for(_view_id, _active)
 		board_view.set_highlights(Targeting.candidates(state, u, action, origin, _planned_occupancy()))
 	else:
@@ -275,11 +292,57 @@ func _arm(action: int) -> void:
 		_refresh()
 
 
+func _write_slot(i: int, hero: int, action: int, target: Vector2i, path: Array) -> void:
+	slot_hero[i] = hero
+	slot_action[i] = action
+	slot_target[i] = target
+	slot_path[i] = path
+	slot_cells[i] = []   # обычный слот — не мультиклеточный
+
+
+# Минное поле: копим клетки по одной. Возвращает true, если клик обработан нацеливанием
+# (клетка-кандидат выбрана или проигнорирована); false — клетка не кандидат, пусть отработает выбор юнита.
+func _pick_mine(cell: Vector2i, cands: Array) -> bool:
+	var remaining := _minus(cands, _pending_cells)
+	if not (cell in remaining):
+		return false
+	_pending_cells.append(cell)
+	remaining = _minus(cands, _pending_cells)
+	if _pending_cells.size() >= Consts.MINEFIELD_COUNT or remaining.is_empty():
+		_commit_minefield()
+	else:
+		board_view.set_highlights(remaining)
+		_update_markers()   # показать уже поставленные мины как метки
+	return true
+
+
+func _commit_minefield() -> void:
+	slot_hero[_active] = _pending_hero
+	slot_action[_active] = _pending_action
+	slot_target[_active] = _pending_cells[0]   # первая мина — «цель» слота (метка/проверка «есть цель»)
+	slot_path[_active] = []
+	slot_cells[_active] = _pending_cells.duplicate()
+	_advance_active()
+	_clear_pending()
+	_refresh()
+
+
+func _minus(cells: Array, picked: Array) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for c in cells:
+		if not (c in picked):
+			out.append(c)
+	return out
+
+
 func _commit(cell: Vector2i) -> void:
 	var path: Array = []
 	var origin := _origin_for(_pending_hero, _active)
 	if _pending_action == Consts.Action.MOVE:
-		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy()).get(cell, [])
+		# дальность хода = move_range() (учёт «Лёгкость»/«Замедление»): та же, что в подсветке кандидатов,
+		# иначе цель дальше MOVE_RANGE подсвечена, но путь к ней не находится → пустой ход
+		var mr := state.get_unit(_pending_hero).move_range()
+		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), mr).get(cell, [])
 	elif _is_path_skill(_pending_skill()):
 		# Отступление/Сходить — путь, как ход, но своей дальностью
 		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), _path_skill_range(_pending_skill())).get(cell, [])
@@ -289,17 +352,88 @@ func _commit(cell: Vector2i) -> void:
 	_refresh()
 
 
-func _write_slot(i: int, hero: int, action: int, target: Vector2i, path: Array) -> void:
-	slot_hero[i] = hero
-	slot_action[i] = action
-	slot_target[i] = target
-	slot_path[i] = path
-
-
 func _clear_pending() -> void:
 	_pending_hero = -1
 	_pending_action = Consts.Action.EMPTY
+	_pending_cells = []
+	_hover_route = []
 	board_view.clear_highlights()
+
+
+# ------------------------------------------------------------- маршруты и ручная прокладка
+
+# Свой живой герой на клетке (кого можно тащить), иначе -1
+func _own_movable_at(cell: Vector2i) -> int:
+	var u := state.unit_at(cell)
+	if u != null and u.owner == player and u.alive:
+		return u.id
+	return -1
+
+
+# Начали тащить свой токен → выделяем героя и переходим в режим ручной прокладки хода.
+func _on_drag_started(cell: Vector2i) -> void:
+	var id := _own_movable_at(cell)
+	if id < 0:
+		return
+	_clear_pending()
+	_view_id = id
+	board_view.set_selected_unit(id)
+	_drag_id = id
+	_drag_path = []
+	var origin := _origin_for(id, _active)
+	board_view.set_highlights(Targeting.candidates(state, state.get_unit(id), Consts.Action.MOVE, origin, _planned_occupancy()))
+	_refresh()
+
+
+# Курсор во время перетаскивания: наращиваем/укорачиваем маршрут по правилам drag_step.
+func _on_drag_updated(cell: Vector2i) -> void:
+	if _drag_id < 0:
+		return
+	var origin := _origin_for(_drag_id, _active)
+	var mr: int = state.get_unit(_drag_id).move_range()
+	_drag_path = Targeting.drag_step(state, origin, _drag_id, _planned_occupancy(), mr, _drag_path, cell)
+	_update_routes()
+
+
+# Отпустили токен: непустой маршрут → фиксируем ход в активный слот.
+func _on_drag_ended() -> void:
+	if _drag_id < 0:
+		return
+	var id := _drag_id
+	var path: Array = _drag_path
+	_drag_id = -1
+	_drag_path = []
+	if path.size() > 0:
+		_write_slot(_active, id, Consts.Action.MOVE, path[path.size() - 1], path.duplicate())
+		_advance_active()
+	_clear_pending()
+	_refresh()
+
+
+# Наведение (без нажатия) при взведённом ходе → превью маршрута к клетке под курсором.
+func _on_cell_hovered(cell: Vector2i) -> void:
+	if _pending_hero >= 0 and _pending_action == Consts.Action.MOVE:
+		var origin := _origin_for(_pending_hero, _active)
+		var mr: int = state.get_unit(_pending_hero).move_range()
+		var paths := Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), mr)
+		_hover_route = paths.get(cell, [])
+		_update_routes()
+	elif not _hover_route.is_empty():
+		_hover_route = []
+		_update_routes()
+
+
+# Собрать маршруты для отрисовки: все запланированные ходы + активное превью (перетаскивание/наведение).
+func _update_routes() -> void:
+	var rs: Array = []
+	for i in Consts.ORDER_SLOTS:
+		if slot_hero[i] >= 0 and slot_action[i] == Consts.Action.MOVE and slot_path[i].size() > 0:
+			rs.append({"origin": _origin_for(slot_hero[i], i), "cells": slot_path[i]})
+	if _drag_id >= 0 and _drag_path.size() > 0:
+		rs.append({"origin": _origin_for(_drag_id, _active), "cells": _drag_path})
+	elif _pending_hero >= 0 and not _hover_route.is_empty():
+		rs.append({"origin": _origin_for(_pending_hero, _active), "cells": _hover_route})
+	board_view.set_routes(rs)
 
 
 func _has_moved(hero_id: int) -> bool:
@@ -333,6 +467,7 @@ func _pass_slot() -> void:
 	slot_action[_active] = Consts.Action.PASS
 	slot_target[_active] = Vector2i(-1, -1)
 	slot_path[_active] = []
+	slot_cells[_active] = []
 	_clear_pending()
 	_advance_active()
 	_refresh()
@@ -364,6 +499,7 @@ func _refresh() -> void:
 	_update_slots()
 	_update_markers()
 	_update_ghosts()
+	_update_routes()
 
 
 func _update_slots() -> void:
@@ -426,6 +562,12 @@ func _update_markers() -> void:
 		if slot_hero[i] < 0 or slot_action[i] == Consts.Action.EMPTY or slot_action[i] == Consts.Action.MOVE:
 			continue
 		var u := state.get_unit(slot_hero[i])
+		# Минное поле — по метке на КАЖДОЙ выбранной клетке
+		if _slot_skill(i) == Consts.Skill.MINEFIELD:
+			for c in slot_cells[i]:
+				ms.append({"cell": c, "hero_type": u.hero_type, "action": slot_action[i],
+						"owner": player, "skills": u.skills})
+			continue
 		var cell: Vector2i
 		if _needs_target(u, slot_action[i]):
 			if slot_target[i].x < 0:
@@ -435,6 +577,12 @@ func _update_markers() -> void:
 			cell = _origin_for(slot_hero[i], i)   # скилл без цели — метка на кастере
 		ms.append({"cell": cell, "hero_type": u.hero_type, "action": slot_action[i],
 				"owner": player, "skills": u.skills})
+	# Превью текущего нацеливания Минного поля: уже накопленные, но ещё не подтверждённые мины
+	if _pending_hero >= 0 and _pending_skill() == Consts.Skill.MINEFIELD:
+		var pu := state.get_unit(_pending_hero)
+		for c in _pending_cells:
+			ms.append({"cell": c, "hero_type": pu.hero_type, "action": _pending_action,
+					"owner": player, "skills": pu.skills})
 	board_view.set_markers(ms)
 
 
@@ -613,6 +761,18 @@ func _on_done() -> void:
 			var o := Order.new(slot_hero[i], slot_action[i])
 			o.path = steps
 			orders.append(o)
+		elif _slot_skill(i) == Consts.Skill.MINEFIELD:
+			# Минное поле — офсеты выбранных клеток от планируемой позиции (как «жест», устойчивый к сдвигу)
+			var origin: Vector2i = _origin_for(slot_hero[i], i)
+			var offs: Array[Vector2i] = []
+			for c in slot_cells[i]:
+				offs.append(c - origin)
+			var o := Order.new(slot_hero[i], slot_action[i])
+			o.relative = true
+			o.path = offs
+			o.offset = offs[0]                  # первая мина — «первичный» офсет (для маркера/дезориентации)
+			o.target = slot_cells[i][0]
+			orders.append(o)
 		else:
 			# нон-таргет: смещение цели от планируемой позиции; в резолве применится от ТЕКУЩЕЙ
 			var has_t: bool = slot_target[i].x >= 0
@@ -627,6 +787,7 @@ func _on_done() -> void:
 			return
 	board_view.clear_highlights()
 	board_view.set_markers([])
+	board_view.set_routes([])
 	board_view.set_selected_unit(-1)
 	orders_ready.emit(orders)
 

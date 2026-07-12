@@ -62,6 +62,10 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	elif skill == Consts.Skill.STEP:
 		if not _path_legal(o.path, Consts.STEP_RANGE):
 			return false
+	elif skill == Consts.Skill.MINEFIELD:
+		# Минное поле несёт список офсетов мин в o.path (как путь — но это НЕ шаги, а цели).
+		if not _minefield_legal(o.path):
+			return false
 	elif def.target != HeroDefs.Target.NONE and not _target_legal(u, o.action, _offset(u, o)):
 		return false
 
@@ -77,6 +81,24 @@ static func _move_legal(path: Array, max_range: int) -> bool:
 	for d in path:
 		if typeof(d) != TYPE_VECTOR2I or not (d in Consts.DIRS4):
 			return false
+	return true
+
+
+# Минное поле: 1..MINEFIELD_COUNT офсетов-целей, каждый в радиусе MINEFIELD_RADIUS (манхэттен),
+# все различны (нельзя две мины в одну клетку). Проходимость/занятость — на резолве.
+static func _minefield_legal(cells: Array) -> bool:
+	if cells.size() < 1 or cells.size() > Consts.MINEFIELD_COUNT:
+		return false
+	var seen := {}
+	for off in cells:
+		if typeof(off) != TYPE_VECTOR2I:
+			return false
+		var man: int = absi(off.x) + absi(off.y)
+		if man < 1 or man > Consts.MINEFIELD_RADIUS:
+			return false
+		if seen.has(off):
+			return false
+		seen[off] = true
 	return true
 
 
@@ -136,8 +158,6 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _man(off) >= 1 and _man(off) <= Consts.HUNT_RANGE
 		Consts.Skill.NET:         # в радиусе NET_RANGE
 			return _man(off) >= 1 and _man(off) <= Consts.NET_RANGE
-		Consts.Skill.MINEFIELD:   # центр в радиусе MINEFIELD_RANGE
-			return _man(off) >= 1 and _man(off) <= Consts.MINEFIELD_RANGE
 		Consts.Skill.BLEED:       # враг в радиусе BLEED_RANGE
 			return _man(off) >= 1 and _man(off) <= Consts.BLEED_RANGE
 		Consts.Skill.SPARK:       # цель на дальности до SPARK_RANGE

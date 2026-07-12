@@ -58,6 +58,7 @@ func _initialize() -> void:
 	test_deathcross_hits_first_enemy_per_line()
 	test_minefield_places_traps()
 	test_minefield_damages_anyone()
+	test_validator_minefield_cells()
 	test_bleed_marks_and_ticks_per_action()
 	test_bleed_ticks_once_per_move_action()
 	test_bleed_ticks_on_swap()
@@ -76,6 +77,10 @@ func _initialize() -> void:
 	test_cold_blood_mana_on_kill()
 	test_blessing_heals_allies_in_radius()
 	test_lightness_move_range_3()
+	test_lightness_move_path_to_control_point()
+	test_drag_step_traces_manual_path()
+	test_drag_flow_writes_move_order()
+	test_grave_tooltip_shows_class()
 	test_crystal_shell_reduces_first_hit_only()
 	test_death_nova_hits_neighbors()
 	test_passive_cannot_be_activated()
@@ -92,6 +97,7 @@ func _initialize() -> void:
 	test_reflexes_blocked_when_cornered()
 	test_skill_slot_follows_loadout()
 	test_loadout_sanitize()
+	test_team_allows_duplicate_heroes()
 	test_immobilize_blocks_movement_skills()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -946,39 +952,68 @@ func test_deathcross_hits_first_enemy_per_line() -> void:
 	_check(ally_left.hp == Consts.FAIRY_HP, "крест: союзник (влево) не задет [%d]" % ally_left.hp)
 
 
+# Собрать приказ Минного поля: относительные офсеты выбранных вручную клеток от кастера.
+func _minefield_order(hero_id: int, origin: Vector2i, cells: Array) -> Order:
+	var o := Order.new(hero_id, Consts.Action.ABILITY1)
+	o.relative = true
+	var offs: Array[Vector2i] = []
+	for c in cells:
+		offs.append(c - origin)
+	o.path = offs
+	o.offset = offs[0]
+	o.target = cells[0]
+	return o
+
+
 func test_minefield_places_traps() -> void:
-	# Минное поле: за один слот ставит MINEFIELD_COUNT капканов вокруг цели
+	# Минное поле: за один каст ставит мины в выбранных ВРУЧНУЮ клетках радиуса 2 от Охотника.
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.MINEFIELD)
 	h.mana = Consts.MINEFIELD_MANA
+	var cells := [Vector2i(3, 2), Vector2i(2, 4), Vector2i(4, 4)]   # 3 клетки в радиусе 2
 	var oa := _slots()
-	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # центр в радиусе
+	oa[0] = _minefield_order(0, h.cell, cells)
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
-	_check(s.traps.size() == Consts.MINEFIELD_COUNT,
-		"минное поле: поставлено %d мин [%d]" % [Consts.MINEFIELD_COUNT, s.traps.size()])
+	_check(s.traps.size() == cells.size(),
+		"минное поле: поставлено %d мин [%d]" % [cells.size(), s.traps.size()])
 
 
 func test_minefield_damages_anyone() -> void:
 	# Мина живёт до конца хода и бьёт ЛЮБОГО (врага и союзника) на MINEFIELD_DMG, без обездвиживания.
-	# Центр (3,3): первые 3 клетки-мины по порядку обхода — (2,2),(3,2),(4,2) ((3,1) — стена).
+	# Охотник (3,4); вручную ставим мины на (2,3) и (4,3) (обе в радиусе 2).
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.MINEFIELD)   # A hunter кладёт поле
 	h.mana = Consts.MINEFIELD_MANA
-	var foe := _place(s, 5, Vector2i(2, 3))          # B crystal зайдёт на мину (2,2)
+	var foe := _place(s, 5, Vector2i(2, 2))          # B crystal зайдёт на мину (2,3)
 	var foe_hp0 := foe.hp
-	var ally := _place(s, 1, Vector2i(4, 3))         # A fairy зайдёт на свою мину (4,2)
+	var ally := _place(s, 1, Vector2i(4, 2))         # A fairy зайдёт на свою мину (4,3)
 	var ally_hp0 := ally.hp
 	var oa := _slots()
-	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 3))          # ставим мины
-	oa[1] = Order.make_move(1, [Vector2i(0, -1)] as Array[Vector2i])       # (4,3)->(4,2)
+	oa[0] = _minefield_order(0, h.cell, [Vector2i(2, 3), Vector2i(4, 3)])  # ставим мины
+	oa[1] = Order.make_move(1, [Vector2i(0, 1)] as Array[Vector2i])        # (4,2)->(4,3)
 	var ob := _slots()
-	ob[1] = Order.make_move(5, [Vector2i(0, -1)] as Array[Vector2i])       # (2,3)->(2,2)
+	ob[1] = Order.make_move(5, [Vector2i(0, 1)] as Array[Vector2i])        # (2,2)->(2,3)
 	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
 	_check(foe.hp == foe_hp0 - Consts.MINEFIELD_DMG,
 		"мина: враг получил %d урона [%d]" % [Consts.MINEFIELD_DMG, foe_hp0 - foe.hp])
 	_check(not foe.immobilized, "мина: не обездвиживает (в отличие от капкана)")
 	_check(ally.hp == ally_hp0 - Consts.MINEFIELD_DMG,
 		"мина: бьёт и своего на %d урона [%d]" % [Consts.MINEFIELD_DMG, ally_hp0 - ally.hp])
+
+
+func test_validator_minefield_cells() -> void:
+	# Серверная санитизация приказа Минного поля: список клеток в o.path (1..3, радиус 2, различны).
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.MINEFIELD)
+	h.mana = Consts.MINEFIELD_MANA
+	var ok := _minefield_order(0, h.cell, [Vector2i(3, 2), Vector2i(2, 4), Vector2i(4, 4)])
+	_check(not _san1(s, ok).is_empty(), "валидатор: 3 мины в радиусе 2 приняты")
+	var many := _minefield_order(0, h.cell, [Vector2i(3, 2), Vector2i(2, 4), Vector2i(4, 4), Vector2i(3, 3)])
+	_check(_san1(s, many).is_empty(), "валидатор: >%d мин отклонено" % Consts.MINEFIELD_COUNT)
+	var far := _minefield_order(0, h.cell, [Vector2i(3, 1)])   # офсет (0,-3), манхэттен 3 > радиуса 2
+	_check(_san1(s, far).is_empty(), "валидатор: мина вне радиуса 2 отклонена")
+	var dup := _minefield_order(0, h.cell, [Vector2i(2, 4), Vector2i(2, 4)])
+	_check(_san1(s, dup).is_empty(), "валидатор: две мины в одну клетку отклонены")
 
 
 func test_bleed_marks_and_ticks_per_action() -> void:
@@ -1258,6 +1293,93 @@ func test_lightness_move_range_3() -> void:
 	_check(f.cell == Vector2i(0, 3), "лёгкость: прошёл 3 клетки [%s]" % f.cell)
 
 
+func test_lightness_move_path_to_control_point() -> void:
+	# Регресс: Фея с «Лёгкостью» (дальность 3) идёт со старта (3,6) на ближайшую достижимую
+	# победную точку (4,4) в обход стены (3,5). Путь ОБЯЗАН находиться той же дальностью, что и
+	# подсветка (move_range()=3). Раньше _commit искал путь дефолтной MOVE_RANGE=2 → пустой ход.
+	var s := _fresh()
+	var f := _place(s, 1, Vector2i(3, 6))   # A fairy на старте
+	f.skills = [Consts.Skill.LIGHTNESS, Consts.Skill.CANCEL, Consts.Skill.HEAL]
+	var cp := Vector2i(4, 4)
+	var cands := Targeting.candidates(s, f, Consts.Action.MOVE, f.cell)
+	_check(cp in cands, "лёгкость: победная точка (4,4) подсвечена достижимой")
+	# Корень бага: дальностью 2 путь к (4,4) не находится...
+	_check(not Targeting.move_paths(s, f.cell, f.id).has(cp),
+		"лёгкость: дальностью 2 путь к (4,4) отсутствует (был баг)")
+	# ...а дальностью move_range()=3 путь есть, и это 3 шага в обход стены.
+	var paths := Targeting.move_paths(s, f.cell, f.id, {}, f.move_range())
+	_check(paths.has(cp) and paths[cp].size() == 3,
+		"лёгкость: дальностью 3 путь к (4,4) есть, 3 шага [%s]" % [paths.get(cp, [])])
+
+
+func test_drag_step_traces_manual_path() -> void:
+	# Ручная прокладка перетаскиванием: пошаговое наращивание, откат, сброс, границы.
+	var s := _fresh()
+	var f := _place(s, 1, Vector2i(3, 6))
+	f.skills = [Consts.Skill.LIGHTNESS, Consts.Skill.CANCEL, Consts.Skill.HEAL]
+	var mr: int = f.move_range()   # 3
+	var occ := Targeting.build_occupancy(s)
+	var org := Vector2i(3, 6)
+	var p: Array = []
+	p = Targeting.drag_step(s, org, f.id, occ, mr, p, Vector2i(4, 6))
+	_check(p == [Vector2i(4, 6)], "drag: шаг на соседа [%s]" % [p])
+	p = Targeting.drag_step(s, org, f.id, occ, mr, p, Vector2i(4, 5))
+	p = Targeting.drag_step(s, org, f.id, occ, mr, p, Vector2i(4, 4))
+	_check(p == [Vector2i(4, 6), Vector2i(4, 5), Vector2i(4, 4)], "drag: маршрут в 3 шага [%s]" % [p])
+	_check(Targeting.drag_step(s, org, f.id, occ, mr, p, Vector2i(4, 3)) == p, "drag: превышение дальности игнорируется")
+	_check(Targeting.drag_step(s, org, f.id, occ, mr, p, Vector2i(4, 5)) == [Vector2i(4, 6), Vector2i(4, 5)], "drag: откат по клетке пути")
+	_check(Targeting.drag_step(s, org, f.id, occ, mr, p, org) == [], "drag: возврат на старт очищает маршрут")
+	_check(Targeting.drag_step(s, org, f.id, occ, mr, [], Vector2i(4, 5)) == [], "drag: несоседняя клетка игнорируется")
+	_check(Targeting.drag_step(s, org, f.id, occ, mr, [], Vector2i(3, 5)) == [], "drag: стена (3,5) не добавляется")
+	_place(s, 3, Vector2i(4, 6))   # B hunter занимает (4,6)
+	var occ2 := Targeting.build_occupancy(s)
+	_check(Targeting.drag_step(s, org, f.id, occ2, mr, [], Vector2i(4, 6)) == [], "drag: занятая клетка не добавляется")
+
+
+func test_drag_flow_writes_move_order() -> void:
+	# Сквозной прогон ручной прокладки через реальные BoardView+PlanningPanel: перетаскивание
+	# феи A id1 (3,6) → (4,6) → (4,5) записывает ход с этим точным путём в активный слот.
+	var s := _fresh()
+	var bv := BoardView.new()
+	root.add_child(bv)
+	bv.setup(s.board)
+	bv.set_view(Consts.Player.A)
+	bv.render(s.snapshot())
+	var pp := PlanningPanel.new()
+	root.add_child(pp)
+	pp.begin(s, Consts.Player.A, bv)
+	pp._on_drag_started(Vector2i(3, 6))
+	pp._on_drag_updated(Vector2i(4, 6))
+	pp._on_drag_updated(Vector2i(4, 5))
+	pp._on_drag_ended()
+	_check(pp.slot_action[0] == Consts.Action.MOVE, "drag-flow: активный слот стал ходом")
+	_check(pp.slot_hero[0] == 1, "drag-flow: ход феи id1 [%d]" % pp.slot_hero[0])
+	_check(pp.slot_path[0] == [Vector2i(4, 6), Vector2i(4, 5)],
+		"drag-flow: записан именно ручной путь [%s]" % [pp.slot_path[0]])
+	pp.queue_free()
+	bv.queue_free()
+
+
+func test_grave_tooltip_shows_class() -> void:
+	# Наведение на могилу даёт тултип с классом лежащего героя; над пустой клеткой — пусто.
+	var s := _fresh()
+	var u := s.get_unit(2)          # A Камнешип на (5,6)
+	u.alive = false
+	u.dead_timer = 2
+	var bv := BoardView.new()
+	root.add_child(bv)
+	bv.setup(s.board)
+	bv.set_view(Consts.Player.A)    # без флипа: экранная клетка == реальной
+	bv.render(s.snapshot())
+	var cell := u.cell
+	var px := Vector2(cell.x * BoardView.CELL + BoardView.CELL * 0.5, cell.y * BoardView.CELL + BoardView.CELL * 0.5)
+	_check(bv._get_tooltip(px) == "Могила: %s" % Consts.hero_name(u.hero_type),
+		"могила: тултип показывает класс [%s]" % bv._get_tooltip(px))
+	_check(bv._get_tooltip(Vector2(BoardView.CELL * 0.5, BoardView.CELL * 0.5)) == "",
+		"могила: над клеткой без могилы тултипа нет")
+	bv.queue_free()
+
+
 func test_crystal_shell_reduces_first_hit_only() -> void:
 	# Кристальный панцирь: первый урон за раунд -1, второй — полный
 	var s := _fresh()
@@ -1496,7 +1618,34 @@ func test_loadout_sanitize() -> void:
 		"кит: неверное число скиллов → дефолт")
 	_check(Loadout.sanitize_hero(Consts.HeroType.CRYSTAL, "мусор") == def,
 		"кит: не-массив → дефолт")
-	var d := Loadout.dict_from_net(["мусор", 5, null])
-	_check(d[Consts.HeroType.HUNTER] == HeroDefs.default_skills(Consts.HeroType.HUNTER),
-		"кит по сети: мусор → дефолт Охотника")
-	_check(d[Consts.HeroType.CRYSTAL] == def, "кит по сети: мусор → дефолт Кристалкайнда")
+	# сетевой отряд: мусорные слоты → дефолтные бойцы соответствующих позиций
+	var team := Loadout.sanitize_team_net(["мусор", 5, null])
+	_check(team.size() == Loadout.TEAM_SIZE, "отряд по сети: ровно %d бойца" % Loadout.TEAM_SIZE)
+	_check(team[0].type == Consts.HeroType.HUNTER
+			and team[0].skills == HeroDefs.default_skills(Consts.HeroType.HUNTER),
+		"отряд по сети: мусор в слоте 0 → дефолтный Охотник")
+	_check(team[2].type == Consts.HeroType.CRYSTAL and team[2].skills == def,
+		"отряд по сети: мусор в слоте 2 → дефолтный Кристалкайнд")
+
+
+func test_team_allows_duplicate_heroes() -> void:
+	# Ключевая фича: можно взять нескольких одинаковых героев. Три Охотника — валидный отряд.
+	var kit := HeroDefs.default_skills(Consts.HeroType.HUNTER)
+	var team := [
+		{"type": Consts.HeroType.HUNTER, "skills": kit},
+		{"type": Consts.HeroType.HUNTER, "skills": kit},
+		{"type": Consts.HeroType.HUNTER, "skills": kit},
+	]
+	var s := MatchState.new()
+	s.setup(team, team)
+	_check(s.get_unit(0).hero_type == Consts.HeroType.HUNTER
+			and s.get_unit(1).hero_type == Consts.HeroType.HUNTER
+			and s.get_unit(2).hero_type == Consts.HeroType.HUNTER,
+		"отряд: три Охотника у игрока A")
+	_check(s.get_unit(0).cell == Vector2i(1, 6) and s.get_unit(2).cell == Vector2i(5, 6),
+		"отряд: дубликаты расставлены по своим клеткам")
+	# переживает сетевую канонизацию (дубликат класса не «схлопывается»)
+	var round_trip := Loadout.sanitize_team_net(Loadout.canon_team_net(team))
+	_check(round_trip[0].type == Consts.HeroType.HUNTER and round_trip[1].type == Consts.HeroType.HUNTER
+			and round_trip[2].type == Consts.HeroType.HUNTER,
+		"отряд по сети: три Охотника сохранены")

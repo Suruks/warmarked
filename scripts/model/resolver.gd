@@ -356,7 +356,7 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.RETREAT: _sk_retreat(state, unit, order, events)
 		Consts.Skill.NET: _sk_net(state, unit, et, events)
 		Consts.Skill.DEATHCROSS: _sk_deathcross(state, unit, events)
-		Consts.Skill.MINEFIELD: _sk_minefield(state, unit, et, events)
+		Consts.Skill.MINEFIELD: _sk_minefield(state, unit, order, et, events)
 		Consts.Skill.BLEED: _sk_bleed(state, unit, et, events)
 		Consts.Skill.CANCEL: _sk_cancel(state, unit, et, events)
 		Consts.Skill.HEAL: _sk_heal(state, unit, et, events)
@@ -483,27 +483,28 @@ func _sk_deathcross(state: MatchState, unit: Unit, events: Array) -> void:
 		_push(events, state, Consts.EventType.FIZZLE, "Крест смерти: на линиях нет врагов")
 
 
-# Минное поле — ставит MINEFIELD_COUNT мин в радиусе MINEFIELD_RADIUS вокруг цели за один слот.
-# Мины живут до конца хода и бьют ЛЮБОГО (в т.ч. союзника) на MINEFIELD_DMG без обездвиживания.
-func _sk_minefield(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+# Минное поле — за один каст ставит мины в клетках, выбранных игроком вручную (офсеты в order.path).
+# Каждая мина живёт до конца хода и бьёт ЛЮБОГО (в т.ч. союзника) на MINEFIELD_DMG без обездвиживания.
+# et — уже разрешённая (с учётом дезориентации) клетка ПЕРВОЙ мины: по ней вычисляем общий разворот.
+func _sk_minefield(state: MatchState, unit: Unit, order: Order, et: Vector2i, events: Array) -> void:
+	if order.path.is_empty():
+		_push(events, state, Consts.EventType.FIZZLE, "Минное поле: не выбрано ни одной клетки")
+		return
+	# Дезориентация разворачивает ВСЕ офсеты одинаково: сравниваем разрешённый первый с исходным.
+	var flip := (et - unit.cell) == -order.path[0]
 	var placed := 0
-	for dy in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
-		for dx in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
-			if placed >= Consts.MINEFIELD_COUNT:
-				break
-			if absi(dx) + absi(dy) > Consts.MINEFIELD_RADIUS:
-				continue
-			var c := et + Vector2i(dx, dy)
-			if not state.board.is_passable(c) or state.unit_at(c) != null \
-					or state.grave_at(c) or _trap_at(state, c):
-				continue
-			state.traps.append({
-				"cell": c, "owner_player": unit.owner, "owner_id": unit.id,
-				"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
-				"mine": true, "dmg": Consts.MINEFIELD_DMG,
-			})
-			placed += 1
-			_push(events, state, Consts.EventType.TRAP_PLACED, "Мина на (%d,%d)" % [c.x, c.y])
+	for off in order.path:
+		var c: Vector2i = unit.cell + (-off if flip else off)
+		if not state.board.is_passable(c) or state.unit_at(c) != null \
+				or state.grave_at(c) or _trap_at(state, c):
+			continue
+		state.traps.append({
+			"cell": c, "owner_player": unit.owner, "owner_id": unit.id,
+			"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
+			"mine": true, "dmg": Consts.MINEFIELD_DMG,
+		})
+		placed += 1
+		_push(events, state, Consts.EventType.TRAP_PLACED, "Мина на (%d,%d)" % [c.x, c.y])
 	if placed == 0:
 		_push(events, state, Consts.EventType.FIZZLE, "Минное поле: некуда ставить мины")
 

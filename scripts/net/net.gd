@@ -78,7 +78,7 @@ func disconnect_net() -> void:
 
 func _on_connected() -> void:
 	connected_ok.emit()
-	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.to_net())
+	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.team_net())
 
 
 func _on_connect_failed() -> void:
@@ -135,8 +135,9 @@ func req_join_queue(version: Variant = 0, loadout: Variant = []) -> void:
 		return
 	if _peer_match.has(sender) or _queue.has(sender):
 		return
-	# Клиенту не доверяем: чужие/повторные скиллы -> кит по умолчанию, иначе лок-степ разъедется
-	_peer_loadout[sender] = Loadout.sanitize_net(loadout)
+	# Клиенту не доверяем: чужой класс/повторные скиллы -> дефолт слота, иначе лок-степ разъедется.
+	# Храним КАНОНИЧЕСКИЙ сетевой отряд, чтобы обе стороны собрали матч из одинаковых байт.
+	_peer_loadout[sender] = Loadout.canon_team_net(loadout)
 	_queue.append(sender)
 	print("[server] peer %d в очереди (всего %d)" % [sender, _queue.size()])
 	_try_matchmake()
@@ -204,8 +205,8 @@ func _create_match(p0: int, p1: int) -> void:
 	var mid := _next_match_id
 	_next_match_id += 1
 	# Оба кита едут обоим клиентам: детерминированная копия матча должна совпасть с серверной
-	var lo_a: Array = _peer_loadout.get(p0, Loadout.defaults_net())
-	var lo_b: Array = _peer_loadout.get(p1, Loadout.defaults_net())
+	var lo_a: Array = _peer_loadout.get(p0, Loadout.default_team_net())
+	var lo_b: Array = _peer_loadout.get(p1, Loadout.default_team_net())
 	_matches[mid] = {"session": MatchSession.new(afo, lo_a, lo_b), "peers": [p0, p1]}
 	_peer_match[p0] = mid
 	_peer_match[p1] = mid
@@ -230,7 +231,7 @@ func _end_match(mid: int) -> void:
 @rpc("authority", "call_remote", "reliable")
 func match_found_rpc(your_index: int, a_first_on_odd: bool, loadout_a: Variant = [], loadout_b: Variant = []) -> void:
 	my_index = your_index
-	matched.emit(your_index, a_first_on_odd, Loadout.sanitize_net(loadout_a), Loadout.sanitize_net(loadout_b))
+	matched.emit(your_index, a_first_on_odd, Loadout.sanitize_team_net(loadout_a), Loadout.sanitize_team_net(loadout_b))
 
 
 @rpc("authority", "call_remote", "reliable")

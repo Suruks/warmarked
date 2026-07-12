@@ -205,11 +205,6 @@ func _show_menu() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	var title := Label.new()
-	title.add_theme_font_size_override("font_size", 30)
-	title.text = "Warmarked"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(title)
 
 	var b_local := Button.new()
 	b_local.text = "Локальная игра (hotseat)"
@@ -260,8 +255,8 @@ func _start_local() -> void:
 	online = false
 	_menu_art.visible = false
 	state = MatchState.new()
-	var lo := Loadout.all()   # hotseat: оба игрока за одним устройством, киты зеркальны
-	state.setup(lo, lo)
+	var team := Loadout.get_team()   # hotseat: оба игрока за одним устройством, отряды зеркальны
+	state.setup(team, team)
 	board_view.setup(state.board)
 	_local_new_round()
 
@@ -283,6 +278,7 @@ func _show_handoff(player: int) -> void:
 	board_view.clear_highlights()
 	board_view.set_ghosts([])
 	board_view.set_markers([])
+	board_view.set_routes([])
 	board_view.set_selected_unit(-1)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 16)
@@ -325,6 +321,7 @@ func _local_resolve() -> void:
 	_set_perspective(Consts.Player.A)   # разрешение — в каноническом виде (A снизу/синий)
 	board_view.set_ghosts([])
 	board_view.set_markers([])
+	board_view.set_routes([])
 	board_view.set_selected_unit(-1)
 	var first: int = round_order[0]
 	var combat := resolver.resolve(state, orders[Consts.Player.A], orders[Consts.Player.B], first)
@@ -356,7 +353,7 @@ func _start_online(host: String) -> void:
 func _on_matched(index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array) -> void:
 	my_index = index
 	state = MatchState.new()
-	state.setup(Loadout.dict_from_net(loadout_a), Loadout.dict_from_net(loadout_b))
+	state.setup(loadout_a, loadout_b)   # уже санированные отряды {type, skills}
 	state.a_first_on_odd = a_first_on_odd
 	board_view.setup(state.board)
 	_set_perspective(my_index)   # свой старт снизу, свои — синие (на весь матч)

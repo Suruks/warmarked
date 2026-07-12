@@ -35,7 +35,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 12
+const PROTOCOL_VERSION := 13
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -120,13 +120,12 @@ const NET_RANGE := 3
 const DEATHCROSS_MANA := 4
 const DEATHCROSS_DMG := 5
 
-# Минное поле: ставит MINEFIELD_COUNT мин в радиусе MINEFIELD_RADIUS вокруг цели за один слот;
-# сам центр можно поставить в пределах MINEFIELD_RANGE от Охотника.
-# Мины живут до конца хода и наносят MINEFIELD_DMG урона ЛЮБОМУ, кто войдёт на клетку (без обездвиживания).
+# Минное поле: за один каст Охотник ВРУЧНУЮ размещает до MINEFIELD_COUNT мин в отдельных
+# клетках радиуса MINEFIELD_RADIUS (манхэттен) вокруг себя. Мины живут до конца хода и наносят
+# MINEFIELD_DMG урона ЛЮБОМУ, кто войдёт на клетку (без обездвиживания).
 const MINEFIELD_MANA := 4
 const MINEFIELD_COUNT := 3
 const MINEFIELD_RADIUS := 2
-const MINEFIELD_RANGE := 3
 const MINEFIELD_DMG := 5
 
 # Кровавый след: враг в радиусе BLEED_RANGE получает эффект на BLEED_TURNS ходов;
@@ -205,7 +204,7 @@ const TELEPORT_RANGE := 2
 const REVIVE_MANA := 4
 
 const JUMP_MANA := 1
-const JUMP_DMG := 3
+const JUMP_DMG := 4
 
 const AMBUSH_MANA := 2
 const AMBUSH_DMG := 5
