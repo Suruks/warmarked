@@ -104,7 +104,7 @@ const PRECISE_DMG := 3
 const PRECISE_RANGE := 2
 
 # Охота началась: метка на враге, ×HUNT_MULT урона по нему от атак/скиллов Охотника до конца раунда
-const HUNT_MANA := 2
+const HUNT_MANA := 3
 const HUNT_RANGE := 4
 const HUNT_MULT := 2
 
@@ -120,12 +120,14 @@ const NET_RANGE := 3
 const DEATHCROSS_MANA := 4
 const DEATHCROSS_DMG := 5
 
-# Минное поле: ставит MINEFIELD_COUNT капканов в радиусе MINEFIELD_RADIUS вокруг цели за один слот;
-# сам центр можно поставить в пределах MINEFIELD_RANGE от Охотника
+# Минное поле: ставит MINEFIELD_COUNT мин в радиусе MINEFIELD_RADIUS вокруг цели за один слот;
+# сам центр можно поставить в пределах MINEFIELD_RANGE от Охотника.
+# Мины живут до конца хода и наносят MINEFIELD_DMG урона ЛЮБОМУ, кто войдёт на клетку (без обездвиживания).
 const MINEFIELD_MANA := 4
 const MINEFIELD_COUNT := 3
 const MINEFIELD_RADIUS := 2
 const MINEFIELD_RANGE := 3
+const MINEFIELD_DMG := 5
 
 # Кровавый след: враг в радиусе BLEED_RANGE получает эффект на BLEED_TURNS ходов;
 # каждое перемещение (вход в клетку) наносит ему BLEED_DMG
@@ -155,7 +157,8 @@ const LIGHTNING_DMG := 5
 const LIGHTNING_RANGE := 2
 
 # --- Пассивные способности (занимают слот кита, но не активируются и не стоят маны) ---
-const COLD_BLOOD_MANA := 2         # Хладнокровие: +мана за килл
+const SNIPER_ATK_BONUS := 2        # Снайпер: +урон к базовой атаке
+const COLD_BLOOD_MANA := 3         # Хладнокровие: +мана за килл
 const BLESSING_HEAL := 1           # Благословение: лечение союзников в радиусе 1 в начале раунда
 const SHELL_REDUCTION := 1         # Кристальный панцирь: первый урон за раунд меньше на столько
 const DEATH_NOVA_DMG := 5          # Осколки (пассив): урон всем соседям при смерти
@@ -180,8 +183,8 @@ const DISORIENT_RANGE := 2
 
 # Кража маны: удар по соседнему врагу — MANASTEAL_DMG урона и похищение MANASTEAL_AMOUNT маны
 const MANASTEAL_MANA := 4
-const MANASTEAL_DMG := 2
-const MANASTEAL_AMOUNT := 2
+const MANASTEAL_DMG := 3
+const MANASTEAL_AMOUNT := 3
 
 # Оковы: враг в радиусе SHACKLES_RANGE на SHACKLES_TURNS ходов теряет базовую атаку
 const SHACKLES_MANA := 3
@@ -199,7 +202,7 @@ const TELEPORT_MANA := 2
 const TELEPORT_RANGE := 2
 
 # Возрождение: воскрешает павшего союзника (любая могила на доске) на полном HP в соседней свободной клетке
-const REVIVE_MANA := 3
+const REVIVE_MANA := 4
 
 const JUMP_MANA := 1
 const JUMP_DMG := 3

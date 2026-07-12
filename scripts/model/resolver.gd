@@ -117,10 +117,26 @@ func _bleed_tick(state: MatchState, unit: Unit, events: Array) -> void:
 
 
 func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Array, _src_player: int) -> void:
-	# Капканы: срабатывают на вход ВРАГА владельца капкана
+	# Капканы бьют только ВРАГА владельца; мины (минное поле) — ЛЮБОГО, кто войдёт на клетку.
 	for t in state.traps.duplicate():
-		if t.cell == cell and t.owner_player != unit.owner:
-			state.traps.erase(t)
+		if t.cell != cell:
+			continue
+		var is_mine: bool = t.get("mine", false)
+		if not is_mine and t.owner_player == unit.owner:
+			continue
+		state.traps.erase(t)
+		if is_mine:
+			_push(events, state, Consts.EventType.TRAP_TRIGGER,
+				"Мина! %s наступает на (%d,%d)" % [unit.full_name(), cell.x, cell.y])
+			# щит поглощает урон мины целиком
+			if unit.shield_armed:
+				unit.shield_armed = false
+				_push(events, state, Consts.EventType.SHIELD_ABSORB,
+					"Щит %s поглотил мину" % unit.full_name())
+			else:
+				_deal_damage(state, unit, int(t.get("dmg", Consts.MINEFIELD_DMG)),
+					t.owner_player, events, "мина", state.get_unit(t.owner_id))
+		else:
 			_push(events, state, Consts.EventType.TRAP_TRIGGER,
 				"Капкан! %s наступает на (%d,%d)" % [unit.full_name(), cell.x, cell.y])
 			# щит гасит капкан целиком (и урон, и обездвиживание) — это один эффект
@@ -132,8 +148,8 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 				unit.immobilized = true   # замер СРАЗУ: гасит остаток движения в этом же раунде
 				_deal_damage(state, unit, Consts.TRAP_DMG, t.owner_player, events, "капкан",
 					state.get_unit(t.owner_id))
-			if not unit.alive:
-				return
+		if not unit.alive:
+			return
 	# Засады: срабатывают, когда ВРАЖЕСКИЙ юнит входит рядом с Кристалкайндом
 	# (как и капкан — по своим не бьёт; owner.id == unit.id покрыт проверкой владельца)
 	for a in state.ambushes.duplicate():
@@ -279,6 +295,9 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 	match unit.hero_type:
 		Consts.HeroType.HUNTER:
 			dmg = Consts.HUNTER_ATK_DMG
+			# «Снайпер»: не двигался в прошлом раунде -> +урон к базовой атаке
+			if unit.has_skill(Consts.Skill.SNIPER) and not unit.moved_last_round:
+				dmg += Consts.SNIPER_ATK_BONUS
 			victim = _first_unit_on_line(state, unit.cell, et)   # пуля бьёт первого на линии
 		Consts.HeroType.FAIRY:
 			dmg = Consts.FAIRY_ATK_DMG
@@ -464,7 +483,8 @@ func _sk_deathcross(state: MatchState, unit: Unit, events: Array) -> void:
 		_push(events, state, Consts.EventType.FIZZLE, "Крест смерти: на линиях нет врагов")
 
 
-# Минное поле — ставит MINEFIELD_COUNT капканов в радиусе MINEFIELD_RADIUS вокруг цели за один слот
+# Минное поле — ставит MINEFIELD_COUNT мин в радиусе MINEFIELD_RADIUS вокруг цели за один слот.
+# Мины живут до конца хода и бьют ЛЮБОГО (в т.ч. союзника) на MINEFIELD_DMG без обездвиживания.
 func _sk_minefield(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
 	var placed := 0
 	for dy in range(-Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_RADIUS + 1):
@@ -480,11 +500,12 @@ func _sk_minefield(state: MatchState, unit: Unit, et: Vector2i, events: Array) -
 			state.traps.append({
 				"cell": c, "owner_player": unit.owner, "owner_id": unit.id,
 				"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
+				"mine": true, "dmg": Consts.MINEFIELD_DMG,
 			})
 			placed += 1
 			_push(events, state, Consts.EventType.TRAP_PLACED, "Мина на (%d,%d)" % [c.x, c.y])
 	if placed == 0:
-		_push(events, state, Consts.EventType.FIZZLE, "Минное поле: некуда ставить капканы")
+		_push(events, state, Consts.EventType.FIZZLE, "Минное поле: некуда ставить мины")
 
 
 # Кровавый след — метка на враге в радиусе BLEED_RANGE: каждое его перемещение будет бить (см. _enter)

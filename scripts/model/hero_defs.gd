@@ -138,7 +138,8 @@ static func skill_def(skill: int) -> AbilityDef:
 				"%d урона первому врагу на каждой из 4 прямых линий" % Consts.DEATHCROSS_DMG)
 		Consts.Skill.MINEFIELD:
 			return AbilityDef.new("Минное поле", Consts.MINEFIELD_MANA, Target.CELL,
-				"ставит %d капкана в радиусе %d вокруг цели" % [Consts.MINEFIELD_COUNT, Consts.MINEFIELD_RADIUS])
+				"ставит %d мины в радиусе %d вокруг цели; действуют до конца хода, %d урона любому на клетке" \
+					% [Consts.MINEFIELD_COUNT, Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_DMG])
 		Consts.Skill.BLEED:
 			return AbilityDef.new("Кровавый след", Consts.BLEED_MANA, Target.CELL,
 				"метка на враге в радиусе %d на %d хода: каждое перемещение цели -> %d урона" % [Consts.BLEED_RANGE, Consts.BLEED_TURNS, Consts.BLEED_DMG])
@@ -159,7 +160,7 @@ static func skill_def(skill: int) -> AbilityDef:
 				"%d урона одиночной цели на дальности до %d" % [Consts.LIGHTNING_DMG, Consts.LIGHTNING_RANGE])
 		Consts.Skill.SNIPER:
 			return AbilityDef.new("Снайпер", 0, Target.NONE,
-				"пассив: если не двигался в прошлом раунде — базовая атака бьёт на любую дальность", [], true)
+				"пассив: если не двигался в прошлом раунде — базовая атака бьёт на любую дальность и +%d к урону" % Consts.SNIPER_ATK_BONUS, [], true)
 		Consts.Skill.COLD_BLOOD:
 			return AbilityDef.new("Хладнокровие", 0, Target.NONE,
 				"пассив: после убийства получает %d маны" % Consts.COLD_BLOOD_MANA, [], true)
@@ -174,7 +175,7 @@ static func skill_def(skill: int) -> AbilityDef:
 				"пассив: первый полученный урон в каждом раунде меньше на %d" % Consts.SHELL_REDUCTION, [], true)
 		Consts.Skill.DEATH_NOVA:
 			return AbilityDef.new("Осколочный взрыв", 0, Target.NONE,
-				"пассив: после смерти наносит %d урона всем соседям" % Consts.DEATH_NOVA_DMG, [], true)
+				"пассив: после смерти наносит %d урона всем в радиусе 1" % Consts.DEATH_NOVA_DMG, [], true)
 		Consts.Skill.PUSH:
 			return AbilityDef.new("Толкнуть", Consts.PUSH_MANA, Target.CELL,
 				"отбрасывает соседа на 1 клетку")

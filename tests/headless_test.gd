@@ -57,6 +57,7 @@ func _initialize() -> void:
 	test_net_immobilizes_target()
 	test_deathcross_hits_first_enemy_per_line()
 	test_minefield_places_traps()
+	test_minefield_damages_anyone()
 	test_bleed_marks_and_ticks_per_action()
 	test_bleed_ticks_once_per_move_action()
 	test_bleed_ticks_on_swap()
@@ -71,7 +72,7 @@ func _initialize() -> void:
 	test_teleport_moves_self()
 	test_teleport_blocked_when_occupied()
 	test_revive_raises_fallen_ally()
-	test_sniper_validator_allows_far_shot()
+	test_sniper_boosts_basic_attack_when_still()
 	test_cold_blood_mana_on_kill()
 	test_blessing_heals_allies_in_radius()
 	test_lightness_move_range_3()
@@ -954,7 +955,30 @@ func test_minefield_places_traps() -> void:
 	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # центр в радиусе
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
 	_check(s.traps.size() == Consts.MINEFIELD_COUNT,
-		"минное поле: поставлено %d капканов [%d]" % [Consts.MINEFIELD_COUNT, s.traps.size()])
+		"минное поле: поставлено %d мин [%d]" % [Consts.MINEFIELD_COUNT, s.traps.size()])
+
+
+func test_minefield_damages_anyone() -> void:
+	# Мина живёт до конца хода и бьёт ЛЮБОГО (врага и союзника) на MINEFIELD_DMG, без обездвиживания.
+	# Центр (3,3): первые 3 клетки-мины по порядку обхода — (2,2),(3,2),(4,2) ((3,1) — стена).
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.MINEFIELD)   # A hunter кладёт поле
+	h.mana = Consts.MINEFIELD_MANA
+	var foe := _place(s, 5, Vector2i(2, 3))          # B crystal зайдёт на мину (2,2)
+	var foe_hp0 := foe.hp
+	var ally := _place(s, 1, Vector2i(4, 3))         # A fairy зайдёт на свою мину (4,2)
+	var ally_hp0 := ally.hp
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 3))          # ставим мины
+	oa[1] = Order.make_move(1, [Vector2i(0, -1)] as Array[Vector2i])       # (4,3)->(4,2)
+	var ob := _slots()
+	ob[1] = Order.make_move(5, [Vector2i(0, -1)] as Array[Vector2i])       # (2,3)->(2,2)
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(foe.hp == foe_hp0 - Consts.MINEFIELD_DMG,
+		"мина: враг получил %d урона [%d]" % [Consts.MINEFIELD_DMG, foe_hp0 - foe.hp])
+	_check(not foe.immobilized, "мина: не обездвиживает (в отличие от капкана)")
+	_check(ally.hp == ally_hp0 - Consts.MINEFIELD_DMG,
+		"мина: бьёт и своего на %d урона [%d]" % [Consts.MINEFIELD_DMG, ally_hp0 - ally.hp])
 
 
 func test_bleed_marks_and_ticks_per_action() -> void:
@@ -1158,19 +1182,40 @@ func test_revive_raises_fallen_ally() -> void:
 
 # ---------------------------------------------------------------- пассивки
 
-func test_sniper_validator_allows_far_shot() -> void:
-	# Снайпер: не двигался в прошлом раунде -> дальний выстрел разрешён; после движения — нет
+func test_sniper_boosts_basic_attack_when_still() -> void:
+	# Снайпер: не двигался в прошлом раунде -> +SNIPER_ATK_BONUS к урону; двигался -> обычный урон
 	var s := _fresh()
-	var h := _place(s, 0, Vector2i(0, 4))
-	h.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SHOTGUN]
+	var h := _place(s, 0, Vector2i(3, 4))
+	h.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SNIPE]
 	h.moved_last_round = false
-	var o := _slots()
-	o[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(6, 4))   # дальность 6 по прямой
-	_check(not OrderValidator.sanitize(s, o, Consts.Player.A)[0].is_empty(),
-		"снайпер: дальний выстрел разрешён (не двигался)")
-	h.moved_last_round = true
-	_check(OrderValidator.sanitize(s, o, Consts.Player.A)[0].is_empty(),
-		"снайпер: после движения дальний выстрел отклонён")
+	var v := _place(s, 3, Vector2i(3, 2), 30)   # враг на дальности 2
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 30 - (Consts.HUNTER_ATK_DMG + Consts.SNIPER_ATK_BONUS),
+		"снайпер: не двигался -> +%d к урону [%d]" % [Consts.SNIPER_ATK_BONUS, v.hp])
+	# теперь двигался в прошлом раунде — бонуса нет
+	var s2 := _fresh()
+	var h2 := _place(s2, 0, Vector2i(3, 4))
+	h2.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h2.moved_last_round = true
+	var v2 := _place(s2, 3, Vector2i(3, 2), 30)
+	var ob := _slots()
+	ob[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))
+	Resolver.new().resolve(s2, ob, _slots(), Consts.Player.A)
+	_check(v2.hp == 30 - Consts.HUNTER_ATK_DMG, "снайпер: двигался -> без бонуса [%d]" % v2.hp)
+	# дальность: не двигался -> дальний выстрел разрешён валидатором; двигался -> отклонён
+	var s3 := _fresh()
+	var h3 := _place(s3, 0, Vector2i(0, 4))
+	h3.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	var far := _slots()
+	far[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(6, 4))   # дальность 6
+	h3.moved_last_round = false
+	_check(not OrderValidator.sanitize(s3, far, Consts.Player.A)[0].is_empty(),
+		"снайпер: не двигался -> дальний выстрел разрешён")
+	h3.moved_last_round = true
+	_check(OrderValidator.sanitize(s3, far, Consts.Player.A)[0].is_empty(),
+		"снайпер: двигался -> дальний выстрел отклонён")
 
 
 func test_cold_blood_mana_on_kill() -> void:
