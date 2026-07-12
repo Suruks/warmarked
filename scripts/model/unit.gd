@@ -94,6 +94,38 @@ func full_name() -> String:
 	return "%s %s" % [Consts.hero_name(hero_type), Consts.player_name(owner)]
 
 
+# Глубокая копия для просчёта: AI прогоняет варианты приказов на клоне через настоящий
+# Resolver, не трогая боевое состояние. Копируем ВСЕ поля (snapshot для этого не годится —
+# он терятельный: без home_cell/skills/флагов симуляция разошлась бы).
+func clone() -> Unit:
+	var u := Unit.new(id, owner, hero_type, cell, skills)
+	u.skills = skills.duplicate()
+	u.max_hp = max_hp
+	u.hp = hp
+	u.mana = mana
+	u.cell = cell
+	u.home_cell = home_cell
+	u.alive = alive
+	u.dead_timer = dead_timer
+	u.death_cell = death_cell
+	u.immobilized = immobilized
+	u.shield_armed = shield_armed
+	u.reflexes_armed = reflexes_armed
+	u.hardened = hardened
+	u.shards_armed = shards_armed
+	u.hunted = hunted
+	u.bleed_turns = bleed_turns
+	u.bleed_owner = bleed_owner
+	u.disoriented = disoriented
+	u.no_attack_turns = no_attack_turns
+	u.slow_turns = slow_turns
+	u.moved_this_round = moved_this_round
+	u.moved_last_round = moved_last_round
+	u.shell_used = shell_used
+	u.block_amount = block_amount
+	return u
+
+
 func snapshot() -> Dictionary:
 	return {
 		"id": id,

@@ -260,6 +260,27 @@ func _ev(type: int, text: String, extra: Dictionary = {}) -> Dictionary:
 	return ev
 
 
+# Глубокая копия для просчёта AI: клон можно свободно мутировать Resolver'ом (прогон варианта
+# приказов), не задевая реальный матч. Доска статична (резолвер её только читает) — делим ссылку.
+func clone() -> MatchState:
+	var s := MatchState.new()
+	s.board = board
+	s.units = [] as Array[Unit]
+	for u in units:
+		s.units.append(u.clone())
+	s.score = {Consts.Player.A: score[Consts.Player.A], Consts.Player.B: score[Consts.Player.B]}
+	s.round_num = round_num
+	s.a_first_on_odd = a_first_on_odd
+	s.winner = winner
+	s.traps = []
+	for t in traps:
+		s.traps.append(t.duplicate(true))
+	s.ambushes = []
+	for a in ambushes:
+		s.ambushes.append(a.duplicate(true))
+	return s
+
+
 func snapshot() -> Dictionary:
 	var us: Array = []
 	for u in units:
