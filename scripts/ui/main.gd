@@ -17,6 +17,7 @@ var _opp_bar: ScoreBar   # очки противника — сверху
 var _my_bar: ScoreBar    # очки игрока — под доской
 var panel_host: MarginContainer
 var _menu_art: TextureRect   # арт в пустой верхней области меню (вне матча)
+var _effect_panel: RichTextLabel   # эффекты выделенного юнита — между очками и скиллами
 
 # локальный режим
 var round_order: Array = []
@@ -84,6 +85,18 @@ func _build_layout() -> void:
 	_my_bar.position = Vector2(Layout.BOARD_X, Layout.SCORE_BOTTOM_Y)
 	_my_bar.size = Vector2(Layout.BOARD_PX, Layout.SCORE_H)
 
+	# полоса эффектов выделенного юнита — между очками и скиллами
+	_effect_panel = RichTextLabel.new()
+	_effect_panel.bbcode_enabled = true
+	_effect_panel.scroll_active = false
+	_effect_panel.clip_contents = true
+	_effect_panel.add_theme_font_size_override("normal_font_size", 15)
+	_effect_panel.add_theme_font_size_override("bold_font_size", 16)
+	_effect_panel.position = Vector2(Layout.BOARD_X + 6, Layout.EFFECT_Y)
+	_effect_panel.size = Vector2(Layout.PANEL_W - 12, Layout.EFFECT_H)
+	add_child(_effect_panel)
+	board_view.selected_effects_changed.connect(func(text): _effect_panel.text = text)
+
 	panel_host = MarginContainer.new()
 	panel_host.position = Vector2(Layout.BOARD_X, Layout.PANEL_TOP)
 	panel_host.custom_minimum_size = Vector2(Layout.PANEL_W, Layout.PANEL_H)
@@ -94,6 +107,7 @@ func _build_layout() -> void:
 	board_view.visible = false
 	_opp_bar.visible = false
 	_my_bar.visible = false
+	_effect_panel.visible = false
 
 
 func _connect_net() -> void:
@@ -147,6 +161,7 @@ func _set_perspective(player: int) -> void:
 func _update_score_bars() -> void:
 	# доска видна только во время матча (state != null): в меню и коллекции её нет
 	board_view.visible = state != null
+	_effect_panel.visible = state != null
 	if state == null:
 		_opp_bar.visible = false
 		_my_bar.visible = false

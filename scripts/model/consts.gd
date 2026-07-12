@@ -19,6 +19,8 @@ enum Skill {
 	HARDENING, SHARDS, OVERLOAD, SWAP,    # Кристалкайнд — новые
 	PRECISE, HUNT_MARK, RETREAT, NET, DEATHCROSS, MINEFIELD,   # Охотник — новые
 	BLEED,                                                     # Охотник — кровавый след
+	SPARK, DISORIENT, MANASTEAL, SHACKLES, SLOW,               # Фея — новые
+	TELEPORT, REVIVE,                                          # Фея — телепорт и возрождение
 }
 
 const SKILLS_PER_HERO := 3
@@ -28,7 +30,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 7
+const PROTOCOL_VERSION := 9
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -43,6 +45,7 @@ enum EventType {
 	REFLEX_ARMED, REFLEX_DODGE,
 	HARDEN_ARMED, HARDEN_BLOCK, SHARDS_ARMED,
 	HUNT_MARKED, BLEED_MARKED,
+	DISORIENT_MARKED, DISORIENT_TRIGGER, SHACKLE_MARKED, SLOW_MARKED,
 }
 
 # --- Поле ---
@@ -134,6 +137,40 @@ const HEAL_RADIUS := 2
 
 const FLASH_MANA := 1
 const FLASH_DMG := 3
+
+# --- Фея: новые скиллы ---
+# Искра: прямой удар по клетке на дальности до SPARK_RANGE
+const SPARK_MANA := 1
+const SPARK_DMG := 3
+const SPARK_RANGE := 2
+
+# Дезориентация: враг в радиусе DISORIENT_RANGE; его следующий НАПРАВЛЕННЫЙ скилл в этом
+# раунде срабатывает в обратную сторону (одноразово)
+const DISORIENT_MANA := 3
+const DISORIENT_RANGE := 2
+
+# Кража маны: удар по соседнему врагу — MANASTEAL_DMG урона и похищение MANASTEAL_AMOUNT маны
+const MANASTEAL_MANA := 4
+const MANASTEAL_DMG := 2
+const MANASTEAL_AMOUNT := 2
+
+# Оковы: враг в радиусе SHACKLES_RANGE на SHACKLES_TURNS ходов теряет базовую атаку
+const SHACKLES_MANA := 3
+const SHACKLES_TURNS := 3
+const SHACKLES_RANGE := 2
+
+# Замедление: враг в радиусе SLOW_RANGE на SLOW_TURNS ходов получает -SLOW_MOVE_PENALTY к дальности хода
+const SLOW_MANA := 1
+const SLOW_TURNS := 3
+const SLOW_RANGE := 2
+const SLOW_MOVE_PENALTY := 1
+
+# Телепорт: перемещает фею на свободную клетку в радиусе TELEPORT_RANGE (сквозь препятствия/юнитов)
+const TELEPORT_MANA := 2
+const TELEPORT_RANGE := 2
+
+# Возрождение: воскрешает павшего союзника (любая могила на доске) на полном HP в соседней свободной клетке
+const REVIVE_MANA := 3
 
 const JUMP_MANA := 1
 const JUMP_DMG := 3

@@ -20,7 +20,10 @@ func resolve(state: MatchState, orders_a: Array, orders_b: Array, first_player: 
 	for i in Consts.ORDER_SLOTS:
 		_push(events, state, Consts.EventType.INFO, "— Слот %d —" % (i + 1))
 		_resolve_slot(state, of[i], first_player, i, events)
-		_resolve_slot(state, os[i], second, i, events)
+		# Второй игрок не действует в ПОСЛЕДНЕМ слоте: действия строго чередуются, и на стыке
+		# раундов никто не ходит дважды подряд (первый доигрывает раунд, второй начинает следующий).
+		if i < Consts.ORDER_SLOTS - 1:
+			_resolve_slot(state, os[i], second, i, events)
 	return events
 
 
@@ -52,7 +55,13 @@ func _do_move(state: MatchState, unit: Unit, path: Array, events: Array) -> void
 	if unit.immobilized:
 		_push(events, state, Consts.EventType.FIZZLE, "%s обездвижен — ход отменён" % unit.full_name())
 		return
-	_walk_path(state, unit, path, events)
+	# Замедление: дальность хода снижена — лишние шаги пути отбрасываются
+	var p: Array = path
+	if unit.slow_turns > 0:
+		var cap := Consts.MOVE_RANGE - Consts.SLOW_MOVE_PENALTY
+		if p.size() > cap:
+			p = p.slice(0, cap)
+	_walk_path(state, unit, p, events)
 
 
 # Проход по относительному пути шагов-смещений (общий для Хода и Отступления).
@@ -222,13 +231,24 @@ func _kill(state: MatchState, target: Unit, src_player: int, events: Array) -> v
 
 # ---------------------------------------------------------------- базовые атаки
 
-# Эффективная цель: нон-таргет-скиллы целят (текущая_клетка + offset), иначе абсолютная target
-func _eff_target(unit: Unit, order: Order) -> Vector2i:
-	return (unit.cell + order.offset) if order.relative else order.target
+# Эффективная цель: смещение цели от текущей клетки. При дезориентации ПЕРВЫЙ направленный
+# (ненулевое смещение) скилл/атака юнита разворачивается, флаг снимается (одноразово).
+func _eff_target(state: MatchState, unit: Unit, order: Order, events: Array) -> Vector2i:
+	var off: Vector2i = order.offset if order.relative else (order.target - unit.cell)
+	if unit.disoriented and off != Vector2i.ZERO:
+		unit.disoriented = false
+		off = -off
+		_push(events, state, Consts.EventType.DISORIENT_TRIGGER,
+			"%s дезориентирован — направление действия развёрнуто" % unit.full_name())
+	return unit.cell + off
 
 
 func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array) -> void:
-	var et := _eff_target(unit, order)
+	if unit.no_attack_turns > 0:
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s скован — базовая атака недоступна" % unit.full_name())
+		return
+	var et := _eff_target(state, unit, order, events)
 	_check_reflexes(state, unit, et, events)   # цель могла увернуться — тогда бьём в пустоту
 	var dmg := 0
 	var victim: Unit
@@ -273,7 +293,7 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 			"%s: не хватает маны на %s" % [unit.full_name(), def.name])
 		return
 	unit.mana -= def.mana
-	var et := _eff_target(unit, order)
+	var et := _eff_target(state, unit, order, events)
 	_push(events, state, Consts.EventType.ABILITY,
 		"%s использует %s" % [unit.full_name(), def.name],
 		{"actor": unit.id, "target_cell": et})
@@ -294,6 +314,13 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.CANCEL: _sk_cancel(state, unit, et, events)
 		Consts.Skill.HEAL: _sk_heal(state, unit, et, events)
 		Consts.Skill.FLASH: _sk_flash(state, unit, events)
+		Consts.Skill.SPARK: _sk_spark(state, unit, et, events)
+		Consts.Skill.DISORIENT: _sk_disorient(state, unit, et, events)
+		Consts.Skill.MANASTEAL: _sk_manasteal(state, unit, et, events)
+		Consts.Skill.SHACKLES: _sk_shackles(state, unit, et, events)
+		Consts.Skill.SLOW: _sk_slow(state, unit, et, events)
+		Consts.Skill.TELEPORT: _sk_teleport(state, unit, et, events)
+		Consts.Skill.REVIVE: _sk_revive(state, unit, et, events)
 		Consts.Skill.JUMP: _sk_jump(state, unit, et, events)
 		Consts.Skill.AMBUSH: _sk_ambush(state, unit, events)
 		Consts.Skill.DASH: _sk_dash(state, unit, et, events)
@@ -466,6 +493,116 @@ func _sk_flash(state: MatchState, unit: Unit, events: Array) -> void:
 		var v := state.unit_at(unit.cell + d)
 		if v != null:
 			_deal_damage(state, v, Consts.FLASH_DMG, unit.owner, events, "вспышка", unit)
+
+
+# Искра — прямой удар по клетке на дальности 1..SPARK_RANGE
+func _sk_spark(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var d := _manhattan(unit.cell, et)
+	if d < 1 or d > Consts.SPARK_RANGE:
+		_push(events, state, Consts.EventType.FIZZLE, "Искра: цель вне дальности")
+		return
+	var v := state.unit_at(et)
+	if v == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Искра в пустоту (%d,%d)" % [et.x, et.y])
+		return
+	_deal_damage(state, v, Consts.SPARK_DMG, unit.owner, events, "искра", unit)
+
+
+# Дезориентация — метка на враге: его следующий направленный скилл в этом раунде развернётся
+func _sk_disorient(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Дезориентация: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	v.disoriented = true
+	_push(events, state, Consts.EventType.DISORIENT_MARKED,
+		"%s дезориентирует %s" % [unit.full_name(), v.full_name()])
+
+
+# Кража маны — удар по соседнему врагу: похищает ману и наносит урон
+func _sk_manasteal(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _cheb(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Кража маны: цель не соседняя")
+		return
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Кража маны: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	var stolen: int = min(Consts.MANASTEAL_AMOUNT, v.mana)
+	v.mana -= stolen
+	unit.mana += stolen
+	_push(events, state, Consts.EventType.MANA,
+		"%s крадёт %d маны у %s" % [unit.full_name(), stolen, v.full_name()])
+	_deal_damage(state, v, Consts.MANASTEAL_DMG, unit.owner, events, "кража маны", unit)
+
+
+# Оковы — враг в радиусе SHACKLES_RANGE теряет базовую атаку на SHACKLES_TURNS ходов
+func _sk_shackles(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Оковы: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	v.no_attack_turns = Consts.SHACKLES_TURNS
+	_push(events, state, Consts.EventType.SHACKLE_MARKED,
+		"%s сковывает %s — %d хода без базовой атаки" % [unit.full_name(), v.full_name(), Consts.SHACKLES_TURNS])
+
+
+# Замедление — враг в радиусе SLOW_RANGE получает -SLOW_MOVE_PENALTY к дальности хода на SLOW_TURNS ходов
+func _sk_slow(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Замедление: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	v.slow_turns = Consts.SLOW_TURNS
+	_push(events, state, Consts.EventType.SLOW_MARKED,
+		"%s замедляет %s" % [unit.full_name(), v.full_name()])
+
+
+# Телепорт — перемещает фею на свободную клетку в радиусе TELEPORT_RANGE (сквозь всё; вход в клетку,
+# поэтому капкан/засада на цели срабатывают, а кровавый след тикает один раз)
+func _sk_teleport(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _manhattan(unit.cell, et) < 1 or _manhattan(unit.cell, et) > Consts.TELEPORT_RANGE:
+		_push(events, state, Consts.EventType.FIZZLE, "Телепорт: цель вне радиуса")
+		return
+	if not state.board.is_passable(et) or state.unit_at(et) != null or state.grave_at(et):
+		_push(events, state, Consts.EventType.FIZZLE, "Телепорт: клетка (%d,%d) занята" % [et.x, et.y])
+		return
+	_enter(state, unit, et, events, unit.owner, Consts.EventType.MOVE,
+		"%s телепортируется на (%d,%d)" % [unit.full_name(), et.x, et.y])
+
+
+# Возрождение — поднимает павшего союзника (любая могила на доске) на полном HP в соседней свободной клетке
+func _sk_revive(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var ally: Unit = null
+	for u in state.units:
+		if not u.alive and u.cell == et and u.owner == unit.owner:
+			ally = u
+			break
+	if ally == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Возрождение: рядом нет павшего союзника")
+		return
+	# соседняя свободная клетка от могилы (детерминированный обход)
+	var dest := Vector2i(-1, -1)
+	for d in Consts.DIRS8:
+		var c: Vector2i = et + d
+		if state.board.is_passable(c) and state.unit_at(c) == null and not state.grave_at(c):
+			dest = c
+			break
+	if dest.x < 0:
+		_push(events, state, Consts.EventType.FIZZLE, "Возрождение: негде поставить союзника")
+		return
+	ally.alive = true
+	ally.hp = ally.max_hp
+	ally.mana = Consts.START_MANA
+	ally.cell = dest
+	ally.dead_timer = 0
+	ally.death_cell = Vector2i(-1, -1)
+	ally.bleed_turns = 0
+	ally.no_attack_turns = 0
+	ally.slow_turns = 0
+	ally.disoriented = false
+	_push(events, state, Consts.EventType.RESPAWN,
+		"%s воскрешает %s на (%d,%d)" % [unit.full_name(), ally.full_name(), dest.x, dest.y])
 
 
 func _sk_jump(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
@@ -651,7 +788,7 @@ func _dir_sign(delta: Vector2i) -> Vector2i:
 # Скиллы, чей эффект перемещает самого кастера (значит, блокируются обездвиживанием)
 func _skill_moves_caster(skill: int) -> bool:
 	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT,
-			Consts.Skill.SWAP, Consts.Skill.RETREAT]
+			Consts.Skill.SWAP, Consts.Skill.RETREAT, Consts.Skill.TELEPORT]
 
 
 # Первый живой юнит на прямой от from к target (стена/край -> пуля погашена, null).

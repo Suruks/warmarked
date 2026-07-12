@@ -62,6 +62,16 @@ func _initialize() -> void:
 	test_bleed_ticks_on_swap()
 	test_bleed_no_tick_without_move()
 	test_bleed_expires_after_turns()
+	test_spark_hits_target()
+	test_disorient_reverses_direction()
+	test_manasteal_steals_and_damages()
+	test_shackles_blocks_basic_attack()
+	test_slow_reduces_move_range()
+	test_teleport_moves_self()
+	test_teleport_blocked_when_occupied()
+	test_revive_raises_fallen_ally()
+	test_second_player_skips_last_slot()
+	test_validator_drops_second_player_last_slot()
 	test_reflexes_dodges_and_gains_mana()
 	test_reflexes_blocked_when_cornered()
 	test_skill_slot_follows_loadout()
@@ -1001,6 +1011,151 @@ func test_bleed_expires_after_turns() -> void:
 		s.begin_round()
 	_check(foe.bleed_turns == 0, "кровавый след: истёк после %d ходов [%d]" % [Consts.BLEED_TURNS, foe.bleed_turns])
 	_check(foe.bleed_owner == -1, "кровавый след: владелец сброшен по истечении")
+
+
+# ---------------------------------------------------------------- новые скиллы Феи
+
+func test_spark_hits_target() -> void:
+	# Искра: SPARK_DMG урона цели на дальности до SPARK_RANGE
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(3, 4), Consts.Skill.SPARK)   # A fairy
+	f.mana = Consts.SPARK_MANA
+	var v := _place(s, 3, Vector2i(3, 2), 10)                 # B hunter на дальности 2
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 2))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 10 - Consts.SPARK_DMG, "искра: урон %d, HP %d [%d]" % [Consts.SPARK_DMG, 10 - Consts.SPARK_DMG, v.hp])
+
+
+func test_disorient_reverses_direction() -> void:
+	# Дезориентация: направленная атака цели разворачивается на этом ходу
+	var s := _fresh()   # A первый
+	var f := _arm(s, 1, Vector2i(2, 3), Consts.Skill.DISORIENT)   # A fairy
+	f.mana = Consts.DISORIENT_MANA
+	_place(s, 5, Vector2i(3, 3))                                  # B crystal (атакующий)
+	var target := _place(s, 2, Vector2i(3, 4), 10)               # A crystal — под развёрнутой атакой
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 3))   # дезориентация B crystal
+	var ob := _slots()
+	ob[1] = Order.make(5, Consts.Action.ATTACK, Vector2i(3, 2))     # B целит ВВЕРХ (3,2) -> развернётся вниз
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(target.hp == 10 - Consts.CRYSTAL_ATK_DMG, "дезориентация: удар развёрнут в (3,4) [%d]" % target.hp)
+
+
+func test_manasteal_steals_and_damages() -> void:
+	# Кража маны: MANASTEAL_DMG урона + похищение MANASTEAL_AMOUNT маны
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(3, 4), Consts.Skill.MANASTEAL)   # A fairy
+	f.mana = Consts.MANASTEAL_MANA
+	var v := _place(s, 3, Vector2i(3, 3), 10)                     # B hunter сосед
+	v.mana = 5
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 10 - Consts.MANASTEAL_DMG, "кража: урон [%d]" % v.hp)
+	_check(v.mana == 5 - Consts.MANASTEAL_AMOUNT, "кража: у цели -%d маны [%d]" % [Consts.MANASTEAL_AMOUNT, v.mana])
+	_check(f.mana == Consts.MANASTEAL_AMOUNT, "кража: фее +%d маны [%d]" % [Consts.MANASTEAL_AMOUNT, f.mana])
+
+
+func test_shackles_blocks_basic_attack() -> void:
+	# Оковы: цель не может использовать базовую атаку
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(4, 3), Consts.Skill.SHACKLES)   # A fairy
+	f.mana = Consts.SHACKLES_MANA
+	var c := _place(s, 5, Vector2i(3, 3))                        # B crystal
+	var target := _place(s, 2, Vector2i(3, 4), 10)             # A crystal — цель атаки
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 3))   # оковы
+	var ob := _slots()
+	ob[1] = Order.make(5, Consts.Action.ATTACK, Vector2i(3, 4))     # попытка атаки
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(c.no_attack_turns == Consts.SHACKLES_TURNS, "оковы: метка на %d хода [%d]" % [Consts.SHACKLES_TURNS, c.no_attack_turns])
+	_check(target.hp == 10, "оковы: базовая атака заблокирована, цель цела [%d]" % target.hp)
+
+
+func test_slow_reduces_move_range() -> void:
+	# Замедление: дальность хода снижена на SLOW_MOVE_PENALTY (ход 2 -> 1)
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(3, 4), Consts.Skill.SLOW)   # A fairy
+	f.mana = Consts.SLOW_MANA
+	var v := _place(s, 5, Vector2i(3, 2))                    # B crystal, дальность 2
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(3, 2))    # замедление
+	var ob := _slots()
+	ob[1] = Order.make_move(5, [Vector2i(-1, 0), Vector2i(-1, 0)] as Array[Vector2i])  # 2 шага влево
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(v.slow_turns == Consts.SLOW_TURNS, "замедление: метка поставлена")
+	_check(v.cell == Vector2i(2, 2), "замедление: прошёл только 1 клетку [%s]" % v.cell)
+
+
+func test_teleport_moves_self() -> void:
+	# Телепорт: фея переносится на свободную клетку в радиусе 2
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(3, 4), Consts.Skill.TELEPORT)   # A fairy
+	f.mana = Consts.TELEPORT_MANA
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(4, 3))   # дистанция 2 (диагональ)
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(f.cell == Vector2i(4, 3), "телепорт: фея на (4,3) [%s]" % f.cell)
+
+
+func test_teleport_blocked_when_occupied() -> void:
+	# Телепорт на занятую клетку физзлит
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(3, 4), Consts.Skill.TELEPORT)
+	f.mana = Consts.TELEPORT_MANA
+	_place(s, 3, Vector2i(4, 3))   # занято врагом
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(4, 3))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(f.cell == Vector2i(3, 4), "телепорт: на занятую клетку не сработал [%s]" % f.cell)
+
+
+func test_revive_raises_fallen_ally() -> void:
+	# Возрождение: могила ВДАЛИ от феи (радиус не ограничен) поднимается на полном HP рядом с могилой
+	var s := _fresh()
+	var f := _arm(s, 1, Vector2i(5, 4), Consts.Skill.REVIVE)   # A fairy — далеко
+	f.mana = Consts.REVIVE_MANA
+	var dead := _place(s, 2, Vector2i(1, 4))                   # A crystal — могила в 4 клетках
+	dead.alive = false
+	dead.hp = 0
+	dead.dead_timer = Consts.RESPAWN_DELAY
+	dead.death_cell = Vector2i(1, 4)
+	var oa := _slots()
+	oa[0] = Order.make(1, Consts.Action.ABILITY1, Vector2i(1, 4))   # цель — далёкая могила
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(dead.alive, "возрождение: союзник ожил (могила вдали)")
+	_check(dead.hp == dead.max_hp, "возрождение: полный HP [%d/%d]" % [dead.hp, dead.max_hp])
+	_check(dead.cell == Vector2i(2, 4), "возрождение: поднят в соседней с могилой клетке (2,4) [%s]" % dead.cell)
+
+
+func test_second_player_skips_last_slot() -> void:
+	# Второй игрок раунда не действует в последнем слоте; первый — действует (чередование)
+	var s := _fresh()   # раунд 1: первый — A
+	var a := _place(s, 0, Vector2i(3, 4))   # A hunter (первый)
+	var b := _place(s, 3, Vector2i(5, 4))   # B hunter (второй)
+	var oa := _slots()
+	oa[Consts.ORDER_SLOTS - 1] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])  # A в послед. слоте
+	var ob := _slots()
+	ob[Consts.ORDER_SLOTS - 1] = Order.make_move(3, [Vector2i(0, 1)] as Array[Vector2i])   # B в послед. слоте
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(a.cell == Vector2i(3, 3), "первый: действие в последнем слоте выполнено [%s]" % a.cell)
+	_check(b.cell == Vector2i(5, 4), "второй: действие в последнем слоте проигнорировано [%s]" % b.cell)
+
+
+func test_validator_drops_second_player_last_slot() -> void:
+	# Санитайзер срезает приказ второго игрока в последнем слоте
+	var s := _fresh()   # раунд 1: первый — A, второй — B
+	_place(s, 3, Vector2i(5, 4))
+	var o := _slots()
+	o[Consts.ORDER_SLOTS - 1] = Order.make_move(3, [Vector2i(0, 1)] as Array[Vector2i])
+	var out := OrderValidator.sanitize(s, o, Consts.Player.B)
+	_check(out[Consts.ORDER_SLOTS - 1].is_empty(), "валидатор: последний слот второго игрока срезан")
+	# у первого игрока (A) тот же слот легален
+	var oa := _slots()
+	oa[Consts.ORDER_SLOTS - 1] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])
+	var outa := OrderValidator.sanitize(s, oa, Consts.Player.A)
+	_check(not outa[Consts.ORDER_SLOTS - 1].is_empty(), "валидатор: последний слот первого игрока сохранён")
 
 
 func test_reflexes_dodges_and_gains_mana() -> void:

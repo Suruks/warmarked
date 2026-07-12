@@ -19,10 +19,14 @@ const BOARD_BOTTOM := BOARD_Y + BoardView.CELL * Consts.BOARD_H
 const SCORE_H := 30
 const SCORE_TOP_Y := 8                                   # очки соперника — над доской
 const SCORE_BOTTOM_Y := BOARD_BOTTOM + 4                 # очки игрока — под доской
+const SCORE_PAD := 12                                    # отступ под очками игрока
 
-const PANEL_GAP := 44                                    # отступ от кружков очков до скиллов
+# Панель эффектов выделенного юнита — между очками и скиллами
+const EFFECT_Y := SCORE_BOTTOM_Y + SCORE_H + SCORE_PAD
+const EFFECT_H := 56
+
 const PANEL_BOTTOM_MARGIN := 8
-const PANEL_TOP := BOARD_BOTTOM + PANEL_GAP
+const PANEL_TOP := EFFECT_Y + EFFECT_H + 6               # скиллы начинаются под полосой эффектов
 const PANEL_W := BOARD_PX
 const PANEL_H := SCREEN_H - PANEL_TOP - PANEL_BOTTOM_MARGIN
 

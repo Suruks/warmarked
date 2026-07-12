@@ -54,7 +54,10 @@ static func pool(hero_type: int) -> Array:
 					Consts.Skill.NET, Consts.Skill.DEATHCROSS, Consts.Skill.MINEFIELD,
 					Consts.Skill.BLEED]
 		Consts.HeroType.FAIRY:
-			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH]
+			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH,
+					Consts.Skill.SPARK, Consts.Skill.DISORIENT, Consts.Skill.MANASTEAL,
+					Consts.Skill.SHACKLES, Consts.Skill.SLOW, Consts.Skill.TELEPORT,
+					Consts.Skill.REVIVE]
 		Consts.HeroType.CRYSTAL:
 			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.ONSLAUGHT,
 					Consts.Skill.DASH, Consts.Skill.SPIKES, Consts.Skill.REFLEXES,
@@ -121,6 +124,27 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.FLASH:
 			return AbilityDef.new("Вспышка", Consts.FLASH_MANA, Target.NONE,
 				"%d урона всем вокруг (радиус 1), включая союзников" % Consts.FLASH_DMG)
+		Consts.Skill.SPARK:
+			return AbilityDef.new("Искра", Consts.SPARK_MANA, Target.CELL,
+				"%d урона одиночной цели на дальности до %d" % [Consts.SPARK_DMG, Consts.SPARK_RANGE])
+		Consts.Skill.DISORIENT:
+			return AbilityDef.new("Дезориентация", Consts.DISORIENT_MANA, Target.CELL,
+				"враг в радиусе %d: его следующий направленный скилл в этом раунде срабатывает в обратную сторону" % Consts.DISORIENT_RANGE)
+		Consts.Skill.MANASTEAL:
+			return AbilityDef.new("Кража маны", Consts.MANASTEAL_MANA, Target.CELL,
+				"удар по соседнему врагу: %d урона и похищение %d маны" % [Consts.MANASTEAL_DMG, Consts.MANASTEAL_AMOUNT])
+		Consts.Skill.SHACKLES:
+			return AbilityDef.new("Оковы", Consts.SHACKLES_MANA, Target.CELL,
+				"враг в радиусе %d на %d хода теряет базовую атаку" % [Consts.SHACKLES_RANGE, Consts.SHACKLES_TURNS])
+		Consts.Skill.SLOW:
+			return AbilityDef.new("Замедление", Consts.SLOW_MANA, Target.CELL,
+				"враг в радиусе %d на %d хода получает -%d к дальности хода" % [Consts.SLOW_RANGE, Consts.SLOW_TURNS, Consts.SLOW_MOVE_PENALTY])
+		Consts.Skill.TELEPORT:
+			return AbilityDef.new("Телепорт", Consts.TELEPORT_MANA, Target.CELL,
+				"телепорт себя на свободную клетку в радиусе %d (сквозь препятствия и юнитов)" % Consts.TELEPORT_RANGE)
+		Consts.Skill.REVIVE:
+			return AbilityDef.new("Возрождение", Consts.REVIVE_MANA, Target.CELL,
+				"воскрешает павшего союзника (любая могила на доске) на полном HP в соседней свободной клетке")
 		Consts.Skill.JUMP:
 			return AbilityDef.new("Прыжок", Consts.JUMP_MANA, Target.CELL,
 				"прыжок через соседа; если враг — %d урона" % Consts.JUMP_DMG)

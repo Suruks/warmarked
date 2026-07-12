@@ -40,6 +40,15 @@ var hunted: bool = false
 var bleed_turns: int = 0
 var bleed_owner: int = -1   # чей эффект (кому идёт килл-очко за смерть от кровотечения)
 
+# «Дезориентация» Феи. Следующий направленный скилл юнита в этом раунде развернётся. Сбрасывается в начале раунда.
+var disoriented: bool = false
+
+# «Оковы» Феи: пока > 0, юнит не может использовать базовую атаку. Держится через раунды (убывает).
+var no_attack_turns: int = 0
+
+# «Замедление» Феи: пока > 0, дальность хода юнита снижена. Держится через раунды (убывает).
+var slow_turns: int = 0
+
 # Кит: ровно SKILLS_PER_HERO id из Consts.Skill, слоты ABILITY1..3 по возрастанию маны
 var skills: Array = []
 
@@ -85,4 +94,7 @@ func snapshot() -> Dictionary:
 		"shards": shards_armed,
 		"hunted": hunted,
 		"bleed": bleed_turns,
+		"disoriented": disoriented,
+		"no_attack": no_attack_turns,
+		"slow": slow_turns,
 	}

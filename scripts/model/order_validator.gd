@@ -24,7 +24,9 @@ static func sanitize(state: MatchState, orders: Array, player: int) -> Array:
 	var seen := {}    # "hero:action" -> скилл уже занят в другом слоте
 	for i in Consts.ORDER_SLOTS:
 		var o: Order = orders[i] if i < orders.size() else Order.empty()
-		out.append(o if _slot_legal(state, o, player, i, spent, seen) else Order.empty())
+		# Второй игрок раунда не действует в последнем слоте — срезаем в пустой приказ.
+		var ok := state.acts_in_slot(player, i) and _slot_legal(state, o, player, i, spent, seen)
+		out.append(o if ok else Order.empty())
 	return out
 
 
@@ -131,6 +133,20 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _man(off) >= 1 and _man(off) <= Consts.MINEFIELD_RANGE
 		Consts.Skill.BLEED:       # враг в радиусе BLEED_RANGE
 			return _man(off) >= 1 and _man(off) <= Consts.BLEED_RANGE
+		Consts.Skill.SPARK:       # цель на дальности до SPARK_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.SPARK_RANGE
+		Consts.Skill.DISORIENT:   # враг в радиусе DISORIENT_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.DISORIENT_RANGE
+		Consts.Skill.SHACKLES:    # враг в радиусе SHACKLES_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.SHACKLES_RANGE
+		Consts.Skill.SLOW:        # враг в радиусе SLOW_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.SLOW_RANGE
+		Consts.Skill.MANASTEAL:   # соседний (8 сторон)
+			return _cheb(off) == 1
+		Consts.Skill.TELEPORT:    # свободная клетка в радиусе TELEPORT_RANGE
+			return _man(off) >= 1 and _man(off) <= Consts.TELEPORT_RANGE
+		Consts.Skill.REVIVE:      # любая клетка (радиус не ограничен; могила проверяется в резолве)
+			return off != Vector2i.ZERO
 	return false
 
 

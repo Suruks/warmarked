@@ -46,6 +46,13 @@ const SKILL_FILES := {
 	Consts.Skill.DEATHCROSS: "death_cross.png",
 	Consts.Skill.MINEFIELD: "minefield.png",
 	Consts.Skill.BLEED: "bleed.png",
+	Consts.Skill.SPARK: "spark.png",
+	Consts.Skill.DISORIENT: "disorient.png",
+	Consts.Skill.MANASTEAL: "manasteal.png",
+	Consts.Skill.SHACKLES: "shackles.png",
+	Consts.Skill.SLOW: "slow.png",
+	Consts.Skill.TELEPORT: "teleport.png",
+	Consts.Skill.REVIVE: "revive.png",
 }
 
 

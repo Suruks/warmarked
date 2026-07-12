@@ -61,7 +61,9 @@ static func candidates(state: MatchState, unit: Unit, action: int, origin: Vecto
 	match action:
 		Consts.Action.MOVE:
 			var out: Array[Vector2i] = []
-			for c in move_paths(state, origin, unit.id, occ).keys():
+			# замедление снижает дальность хода на этапе планирования
+			var rng := Consts.MOVE_RANGE - (Consts.SLOW_MOVE_PENALTY if unit.slow_turns > 0 else 0)
+			for c in move_paths(state, origin, unit.id, occ, rng).keys():
 				out.append(c)
 			return out
 		Consts.Action.ATTACK:
@@ -191,6 +193,32 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 			_ring(board, origin, 1, Consts.NET_RANGE, out)
 		Consts.Skill.BLEED:  # враг в радиусе BLEED_RANGE (манхэттен)
 			_ring(board, origin, 1, Consts.BLEED_RANGE, out)
+		Consts.Skill.SPARK:  # цель на дальности до SPARK_RANGE
+			_ring(board, origin, 1, Consts.SPARK_RANGE, out)
+		Consts.Skill.DISORIENT:  # враг в радиусе DISORIENT_RANGE
+			_ring(board, origin, 1, Consts.DISORIENT_RANGE, out)
+		Consts.Skill.SHACKLES:  # враг в радиусе SHACKLES_RANGE
+			_ring(board, origin, 1, Consts.SHACKLES_RANGE, out)
+		Consts.Skill.SLOW:  # враг в радиусе SLOW_RANGE
+			_ring(board, origin, 1, Consts.SLOW_RANGE, out)
+		Consts.Skill.MANASTEAL:  # соседний (8 сторон) враг
+			for d in Consts.DIRS8:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.TELEPORT:  # свободная клетка в радиусе TELEPORT_RANGE (манхэттен)
+			for dy in range(-Consts.TELEPORT_RANGE, Consts.TELEPORT_RANGE + 1):
+				for dx in range(-Consts.TELEPORT_RANGE, Consts.TELEPORT_RANGE + 1):
+					var m := absi(dx) + absi(dy)
+					if m < 1 or m > Consts.TELEPORT_RANGE:
+						continue
+					var c := origin + Vector2i(dx, dy)
+					if board.is_passable(c) and _at(occ, c) == null and not state.grave_at(c):
+						out.append(c)
+		Consts.Skill.REVIVE:  # любая могила союзника на доске (радиус не ограничен)
+			for du in state.units:
+				if not du.alive and du.owner == unit.owner:
+					out.append(du.cell)
 		Consts.Skill.MINEFIELD:  # центр поля в радиусе MINEFIELD_RANGE (манхэттен)
 			_ring(board, origin, 1, Consts.MINEFIELD_RANGE, out)
 		Consts.Skill.RETREAT:  # путь до RETREAT_RANGE, только если рядом есть враг

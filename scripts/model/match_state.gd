@@ -83,6 +83,12 @@ func first_player_this_round() -> int:
 		return Consts.Player.B if a_first_on_odd else Consts.Player.A
 
 
+# Действует ли игрок в этом слоте. Второй игрок раунда пропускает ПОСЛЕДНИЙ слот — так действия
+# строго чередуются и никто не ходит дважды подряд на стыке раундов.
+func acts_in_slot(player: int, slot: int) -> bool:
+	return not (slot == Consts.ORDER_SLOTS - 1 and player != first_player_this_round())
+
+
 func add_score(player: int, pts: int) -> void:
 	score[player] += pts
 	if score[player] >= Consts.WIN_SCORE and winner < 0:
@@ -99,12 +105,17 @@ func begin_round() -> Array:
 		u.hardened = false
 		u.shards_armed = false
 		u.hunted = false
+		u.disoriented = false   # дезориентация действует лишь на свой раунд
 		u.immobilized = false   # капкан замораживает лишь до конца своего раунда — новый раунд свободен
-		# Кровавый след держится через раунды: убывает, а не сбрасывается
+		# Эффекты с длительностью держатся через раунды: убывают, а не сбрасываются
 		if u.bleed_turns > 0:
 			u.bleed_turns -= 1
 			if u.bleed_turns == 0:
 				u.bleed_owner = -1
+		if u.no_attack_turns > 0:
+			u.no_attack_turns -= 1
+		if u.slow_turns > 0:
+			u.slow_turns -= 1
 		if u.alive and round_num > 1:
 			u.mana += 1
 	# Респ мёртвых
@@ -142,8 +153,11 @@ func _try_respawn(u: Unit, events: Array) -> void:
 	u.mana = Consts.START_MANA   # накопленный до смерти банк не переживает респ — это и есть цена смерти
 	u.cell = cell
 	u.dead_timer = 0
-	u.bleed_turns = 0            # кровотечение не переживает смерть
+	u.bleed_turns = 0            # эффекты с длительностью не переживают смерть
 	u.bleed_owner = -1
+	u.no_attack_turns = 0
+	u.slow_turns = 0
+	u.disoriented = false
 	events.append(_ev(Consts.EventType.RESPAWN,
 		"%s воскрешается на (%d,%d)" % [u.full_name(), cell.x, cell.y]))
 

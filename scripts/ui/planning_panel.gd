@@ -45,6 +45,8 @@ var _active: int = 0
 var _view_id: int = -1     # чей китбар показан (может быть враг)
 var _pending_action: int = Consts.Action.EMPTY   # выбранное, но не подтверждённое действие
 var _pending_hero: int = -1
+var _locked_slot: int = -1       # мой недоступный слот (второй игрок пропускает последний)
+var _opp_locked_slot: int = -1   # недоступный слот соперника (для индикации)
 
 var _skills_row: HBoxContainer
 var _desc_field: RichTextLabel
@@ -65,6 +67,10 @@ func begin(p_state: MatchState, p_player: int, p_board_view: BoardView) -> void:
 	slot_action = [Consts.Action.EMPTY, Consts.Action.EMPTY, Consts.Action.EMPTY, Consts.Action.EMPTY]
 	slot_target = [Vector2i(-1, -1), Vector2i(-1, -1), Vector2i(-1, -1), Vector2i(-1, -1)]
 	slot_path = [[], [], [], []]
+	# Второй игрок раунда пропускает последний слот (чередование без двойного хода)
+	var me_first := state.first_player_this_round() == player
+	_locked_slot = -1 if me_first else Consts.ORDER_SLOTS - 1
+	_opp_locked_slot = Consts.ORDER_SLOTS - 1 if me_first else -1
 	_active = 0
 	_view_id = -1
 	board_view.set_selected_unit(-1)
@@ -141,18 +147,31 @@ func _build_ui() -> void:
 	add_child(done)
 
 
-# Жёсткая раскладка ряда слотов, чередуя мои (крупные) и соперника (мелкие)
+# Раскладка ряда слотов в порядке разрешения, чередуя мои (крупные) и соперника (мелкие).
+# Отсутствующие слоты (последний у второго игрока) пропускаются — остальные центрируются.
 func _layout_slots(me_first: bool) -> void:
-	var n := Consts.ORDER_SLOTS
-	var total := n * (SLOT_BIG + SLOT_SMALL) + (2 * n - 1) * SLOT_GAP
-	var x := int((PANEL_W - total) / 2)
-	for i in n:
+	var seq: Array = []   # [{big:bool, i:int}] — чипы в визуальном порядке
+	for i in Consts.ORDER_SLOTS:
+		var mine := {"big": true, "i": i}
+		var opp := {"big": false, "i": i}
 		if me_first:
-			x = _place_big(i, x) + SLOT_GAP
-			x = _place_small(i, x) + SLOT_GAP
+			if i != _locked_slot: seq.append(mine)
+			if i != _opp_locked_slot: seq.append(opp)
 		else:
-			x = _place_small(i, x) + SLOT_GAP
-			x = _place_big(i, x) + SLOT_GAP
+			if i != _opp_locked_slot: seq.append(opp)
+			if i != _locked_slot: seq.append(mine)
+	# отсутствующие чипы скрываем, чтобы не ловили клики и не занимали место
+	if _locked_slot >= 0:
+		_slot_chips[_locked_slot].visible = false
+		_slot_heroicons[_locked_slot].visible = false
+	if _opp_locked_slot >= 0:
+		_opp_chips[_opp_locked_slot].visible = false
+	var total := (seq.size() - 1) * SLOT_GAP
+	for s in seq:
+		total += SLOT_BIG if s.big else SLOT_SMALL
+	var x := int((PANEL_W - total) / 2)
+	for s in seq:
+		x = (_place_big(s.i, x) if s.big else _place_small(s.i, x)) + SLOT_GAP
 
 
 func _place_big(i: int, x: int) -> int:
@@ -291,6 +310,8 @@ func _has_moved(hero_id: int) -> bool:
 
 
 func _on_my_slot_pressed(i: int) -> void:
+	if i == _locked_slot:
+		return   # слот недоступен этот раунд (второй игрок)
 	_active = i
 	_err_lbl.text = ""
 	_clear_pending()
@@ -326,10 +347,14 @@ func _has_moved_except(hero_id: int, except_slot: int) -> bool:
 
 func _advance_active() -> void:
 	for i in Consts.ORDER_SLOTS:
-		if slot_action[i] == Consts.Action.EMPTY:
+		if i != _locked_slot and slot_action[i] == Consts.Action.EMPTY:
 			_active = i
 			return
-	_active = Consts.ORDER_SLOTS - 1
+	# все доступные заняты -> встать на последний доступный (не заблокированный)
+	for i in range(Consts.ORDER_SLOTS - 1, -1, -1):
+		if i != _locked_slot:
+			_active = i
+			return
 
 
 # ------------------------------------------------------------- обновление вида
@@ -343,6 +368,8 @@ func _refresh() -> void:
 
 func _update_slots() -> void:
 	for i in Consts.ORDER_SLOTS:
+		if i == _locked_slot:
+			continue   # слот отсутствует у второго игрока
 		var chip: Button = _slot_chips[i]
 		chip.icon = null
 		chip.text = ""
@@ -367,8 +394,10 @@ func _update_slots() -> void:
 			_slot_heroicons[i].texture = Icons.hero(state.get_unit(slot_hero[i]).hero_type)
 		else:
 			_slot_heroicons[i].texture = null
-	# слоты соперника (индикация: тёмный = запланирован)
+	# слоты соперника (индикация: тёмный = запланирован); отсутствующий слот пропускаем
 	for i in Consts.ORDER_SLOTS:
+		if i == _opp_locked_slot:
+			continue
 		_opp_chips[i].color = COL_OPP_FILLED if _opp_filled[i] else COL_OPP_EMPTY
 	_emit_progress()
 

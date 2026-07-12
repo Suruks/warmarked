@@ -8,6 +8,7 @@ extends Control
 ## Клик по клетке → сигнал cell_clicked (уже в реальных координатах).
 
 signal cell_clicked(cell: Vector2i)
+signal selected_effects_changed(text: String)   # эффекты выделенного юнита -> панель под очками
 
 const CELL := 76
 const PAD := 6
@@ -39,7 +40,6 @@ var _floater_uid := 0
 var _font: Font
 var markers: Array = []
 var ghosts: Array = []
-var _effect_hotspots: Array = []   # [{rect:Rect2, eff:Dictionary}] — зоны иконок эффектов для тултипа
 
 const COL_BG := Color("1c2029")
 const COL_CELL := Color("2b313d")
@@ -86,6 +86,7 @@ func render(p_snap: Dictionary) -> void:
 	snap = p_snap
 	floaters.clear()
 	_reset_visuals()
+	_emit_selected_effects()
 	queue_redraw()
 
 
@@ -93,6 +94,7 @@ func render(p_snap: Dictionary) -> void:
 func reconcile(p_snap: Dictionary) -> void:
 	snap = p_snap
 	_reset_visuals()
+	_emit_selected_effects()
 	queue_redraw()
 
 
@@ -127,6 +129,7 @@ func set_markers(m: Array) -> void:
 var selected_unit_id := -1
 func set_selected_unit(id: int) -> void:
 	selected_unit_id = id
+	_emit_selected_effects()
 	queue_redraw()
 
 
@@ -257,7 +260,6 @@ func _draw() -> void:
 		return
 	if _font == null:
 		_font = ThemeDB.fallback_font
-	_effect_hotspots.clear()   # пересобираем зоны тултипов эффектов при каждой перерисовке
 	draw_rect(Rect2(Vector2.ZERO, custom_minimum_size), COL_BG)
 	# грид: идём по экранным клеткам, содержимое берём из реальной клетки
 	for sy in Consts.BOARD_H:
@@ -366,53 +368,89 @@ func _draw_stat(ctr: Vector2, value: int, left: bool) -> void:
 	draw_string(_font, Vector2(x, y + 16), str(value), HORIZONTAL_ALIGNMENT_CENTER, w, 18, Color(0.95, 0.98, 1.0))
 
 
-# Иконки активных эффектов рядком под героем. Рисуются только те, у кого есть арт.
-# Зоны иконок пишутся в _effect_hotspots для всплывающей подсказки (см. _get_tooltip).
+# Иконки активных эффектов рядком под героем. Рисуются только те, у кого есть арт
+# (детали читаются в панели под очками — см. selected_effects_changed).
 func _draw_debuffs(u: Dictionary, ctr: Vector2) -> void:
-	var shown: Array = []
+	var texes: Array = []
 	for e in _active_effects(u):
 		var tex := Icons.effect(e.file)
 		if tex != null:
-			e["tex"] = tex
-			shown.append(e)
-	if shown.is_empty():
+			texes.append(tex)
+	if texes.is_empty():
 		return
 	var isz := 20.0
 	var gap := 2.0
-	var total := shown.size() * isz + (shown.size() - 1) * gap
+	var total := texes.size() * isz + (texes.size() - 1) * gap
 	var x := ctr.x - total * 0.5
 	var y := ctr.y + CELL * 0.5 - isz - 2
-	for e in shown:
-		var r := Rect2(x, y, isz, isz)
+	for tex in texes:
 		draw_rect(Rect2(x - 1, y - 1, isz + 2, isz + 2), Color(0, 0, 0, 0.6))
-		draw_texture_rect(e.tex, r, false)
-		_effect_hotspots.append({"rect": r, "eff": e})
+		draw_texture_rect(tex, Rect2(x, y, isz, isz), false)
 		x += isz + gap
 
 
 # Метаданные активных эффектов юнита: файл иконки, название, длительность, описание.
 func _active_effects(u: Dictionary) -> Array:
 	var out: Array = []
+	if u.get("shield", false):
+		out.append({"file": "effect_shield.png", "name": "Щит",
+			"dur": "этот раунд", "desc": "Поглощает следующий эффект по юниту"})
+	if u.get("reflex", false):
+		out.append({"file": "effect_reflex.png", "name": "Рефлексы",
+			"dur": "этот раунд", "desc": "Уходит из-под удара соседа и получает ману"})
+	if u.get("hardened", false):
+		out.append({"file": "effect_harden.png", "name": "Затвердение",
+			"dur": "этот раунд", "desc": "Входящий урон меньше на %d" % Consts.HARDENING_REDUCTION})
+	if u.get("shards", false):
+		out.append({"file": "effect_shards.png", "name": "Осколки",
+			"dur": "этот раунд", "desc": "Атаковавший враг получает %d в ответ" % Consts.SHARDS_DMG})
 	if u.get("immobilized", false):
 		out.append({"file": "effect_immobilized.png", "name": "Обездвижен",
 			"dur": "до конца раунда", "desc": "Не может ходить и применять скиллы-перемещения"})
 	if u.get("hunted", false):
 		out.append({"file": "effect_hunt.png", "name": "Охота началась",
 			"dur": "этот раунд", "desc": "Урон Охотника по цели ×%d" % Consts.HUNT_MULT})
+	if u.get("disoriented", false):
+		out.append({"file": "effect_disorient.png", "name": "Дезориентация",
+			"dur": "этот раунд", "desc": "Следующий направленный скилл сработает в обратную сторону"})
 	var bt: int = u.get("bleed", 0)
 	if bt > 0:
 		out.append({"file": "effect_blood_path.png", "name": "Кровавый след",
 			"dur": _plural_turns(bt), "desc": "Каждое перемещение наносит %d урона" % Consts.BLEED_DMG})
+	var na: int = u.get("no_attack", 0)
+	if na > 0:
+		out.append({"file": "effect_shackles.png", "name": "Оковы",
+			"dur": _plural_turns(na), "desc": "Не может использовать базовую атаку"})
+	var sl: int = u.get("slow", 0)
+	if sl > 0:
+		out.append({"file": "effect_slow.png", "name": "Замедление",
+			"dur": _plural_turns(sl), "desc": "-%d к дальности хода" % Consts.SLOW_MOVE_PENALTY})
 	return out
 
 
-# Всплывающая подсказка при наведении на иконку эффекта: название, длительность, описание.
-func _get_tooltip(at_position: Vector2) -> String:
-	for h in _effect_hotspots:
-		if (h.rect as Rect2).has_point(at_position):
-			var e: Dictionary = h.eff
-			return "%s\nДлительность: %s\n%s" % [e.name, e.dur, e.desc]
-	return ""
+# Эффекты выделенного юнита -> текст для панели под очками (bbcode). Пусто, если нет.
+func _emit_selected_effects() -> void:
+	var text := ""
+	if selected_unit_id >= 0:
+		for u in snap.get("units", []):
+			if u.id == selected_unit_id:
+				text = _effects_text(u)
+				break
+	selected_effects_changed.emit(text)
+
+
+func _effects_text(u: Dictionary) -> String:
+	var effs := _active_effects(u)
+	if effs.is_empty():
+		return ""
+	var lines: Array = []
+	for e in effs:
+		var icon := ""
+		var path: String = Icons.DIR + e.file
+		if ResourceLoader.exists(path):
+			icon = "[img=20]%s[/img] " % path   # иконка эффекта перед строкой
+		lines.append("%s[b]%s[/b]  [color=#8a93a3](%s)[/color]  %s" % [icon, e.name, e.dur, e.desc])
+	return "\n".join(lines)
 
 
 func _plural_turns(n: int) -> String:
