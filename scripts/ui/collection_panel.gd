@@ -111,6 +111,7 @@ var _trio_icon: Array = [null, null, null]
 var _trio_label: Array = [null, null, null]
 var _desc: RichTextLabel
 var _err: Label
+var _rolled_random := false   # отряд собран кнопкой «Рандом» и не правлен руками
 
 
 func _ready() -> void:
@@ -155,6 +156,12 @@ func _ready() -> void:
 	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(func(): closed.emit())
 	row.add_child(back)
+	var rnd := Button.new()
+	rnd.text = "Рандом"
+	rnd.custom_minimum_size = Vector2(0, 46)
+	rnd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rnd.pressed.connect(_on_random)
+	row.add_child(rnd)
 	var save := Button.new()
 	save.text = "Сохранить"
 	save.custom_minimum_size = Vector2(0, 46)
@@ -286,12 +293,24 @@ func place_in_trio(trio: int, skill: int, _cls: int) -> void:
 		return
 	_trio_skills[trio].append(skill)
 	_trio_skills[trio] = HeroDefs.sorted_by_mana(_trio_skills[trio])   # слоты по возрастанию маны
+	_rolled_random = false   # ручная правка отменяет «случайный бой»
 	_err.text = ""
 	_refresh()
 
 
 func remove_from_trio(trio: int, skill: int) -> void:
 	_trio_skills[trio].erase(skill)
+	_rolled_random = false
+	_refresh()
+
+
+# «Рандом»: собрать отряд из трёх сбалансированных случайных китов (по одному каждого класса).
+func _on_random() -> void:
+	var team := Loadout.random_team()
+	for t in N_TRIOS:
+		_trio_skills[t] = HeroDefs.sorted_by_mana((team[t].skills as Array))
+	_rolled_random = true
+	_err.text = ""
 	_refresh()
 
 
@@ -341,4 +360,5 @@ func _on_save() -> void:
 	for t in N_TRIOS:
 		team.append({"type": _trio_class_of(t), "skills": (_trio_skills[t] as Array).duplicate()})
 	Loadout.set_team(team)
+	Loadout.set_random_battle(_rolled_random)   # случайный отряд → сопернику тоже ролится свой
 	closed.emit()

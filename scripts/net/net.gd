@@ -8,7 +8,7 @@ extends Node
 signal connected_ok
 signal connect_failed
 signal server_gone
-signal matched(your_index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array)
+signal matched(your_index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array, map_index: int)
 signal version_mismatch(server_version: int, client_version: int)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
@@ -202,19 +202,20 @@ func _try_matchmake() -> void:
 
 func _create_match(p0: int, p1: int) -> void:
 	var afo := (randi() % 2 == 0)
+	var map_index := randi() % Maps.count()   # карту выбирает СЕРВЕР — обе стороны строят одинаковый матч
 	var mid := _next_match_id
 	_next_match_id += 1
 	# Оба кита едут обоим клиентам: детерминированная копия матча должна совпасть с серверной
 	var lo_a: Array = _peer_loadout.get(p0, Loadout.default_team_net())
 	var lo_b: Array = _peer_loadout.get(p1, Loadout.default_team_net())
-	_matches[mid] = {"session": MatchSession.new(afo, lo_a, lo_b), "peers": [p0, p1]}
+	_matches[mid] = {"session": MatchSession.new(afo, lo_a, lo_b, map_index), "peers": [p0, p1]}
 	_peer_match[p0] = mid
 	_peer_match[p1] = mid
 	_peer_index[p0] = 0
 	_peer_index[p1] = 1
-	rpc_id(p0, "match_found_rpc", 0, afo, lo_a, lo_b)
-	rpc_id(p1, "match_found_rpc", 1, afo, lo_a, lo_b)
-	print("[server] матч %d: peer %d = A, peer %d = B (a_first_on_odd=%s)" % [mid, p0, p1, afo])
+	rpc_id(p0, "match_found_rpc", 0, afo, lo_a, lo_b, map_index)
+	rpc_id(p1, "match_found_rpc", 1, afo, lo_a, lo_b, map_index)
+	print("[server] матч %d: peer %d = A, peer %d = B (a_first_on_odd=%s, map=%d)" % [mid, p0, p1, afo, map_index])
 
 
 func _end_match(mid: int) -> void:
@@ -229,9 +230,9 @@ func _end_match(mid: int) -> void:
 # ============================================================ RPC: сервер → клиент
 
 @rpc("authority", "call_remote", "reliable")
-func match_found_rpc(your_index: int, a_first_on_odd: bool, loadout_a: Variant = [], loadout_b: Variant = []) -> void:
+func match_found_rpc(your_index: int, a_first_on_odd: bool, loadout_a: Variant = [], loadout_b: Variant = [], map_index: int = 0) -> void:
 	my_index = your_index
-	matched.emit(your_index, a_first_on_odd, Loadout.sanitize_team_net(loadout_a), Loadout.sanitize_team_net(loadout_b))
+	matched.emit(your_index, a_first_on_odd, Loadout.sanitize_team_net(loadout_a), Loadout.sanitize_team_net(loadout_b), map_index)
 
 
 @rpc("authority", "call_remote", "reliable")

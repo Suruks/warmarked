@@ -264,8 +264,11 @@ func _start_local(vs_ai: bool = false) -> void:
 	_vs_ai = vs_ai
 	_menu_art.visible = false
 	state = MatchState.new()
-	var team := Loadout.get_team()   # hotseat: оба игрока за одним устройством, отряды зеркальны
-	state.setup(team, team)
+	var team_a := Loadout.get_team()
+	# В «случайном бою» соперник (бот/2-й игрок) получает свой независимый случайный отряд;
+	# иначе — зеркало (оба за одним устройством играют одним составом).
+	var team_b := Loadout.random_team() if Loadout.is_random_battle() else team_a
+	state.setup(team_a, team_b, randi() % Maps.count())   # случайная карта из ротации
 	board_view.setup(state.board)
 	_local_new_round()
 
@@ -313,8 +316,16 @@ func _show_planning(player: int) -> void:
 	pp.orders_ready.connect(_on_local_orders_ready.bind(player))
 	pp.progress_changed.connect(_on_my_progress)
 	pp.begin(state, player, board_view)
-	# в hotseat соперник уже мог спланировать (ходит первым) — показать его заполненные слоты
-	pp.set_opponent_progress(_orders_filled(orders[Consts.other_player(player)]))
+	# Против бота его ход определён целиком и сразу — пустой слот у него это осознанный «пас»,
+	# а не «ещё думает», поэтому показываем ВСЕ слоты соперника занятыми. В hotseat двух людей —
+	# реальный прогресс соперника (какие слоты он уже заполнил, если ходит первым).
+	if _vs_ai:
+		var all_filled: Array = []
+		for i in Consts.ORDER_SLOTS:
+			all_filled.append(true)
+		pp.set_opponent_progress(all_filled)
+	else:
+		pp.set_opponent_progress(_orders_filled(orders[Consts.other_player(player)]))
 
 
 func _on_local_orders_ready(o: Array, player: int) -> void:
@@ -371,10 +382,10 @@ func _start_online(host: String) -> void:
 	Net.start_client(host)
 
 
-func _on_matched(index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array) -> void:
+func _on_matched(index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array, map_index: int) -> void:
 	my_index = index
 	state = MatchState.new()
-	state.setup(loadout_a, loadout_b)   # уже санированные отряды {type, skills}
+	state.setup(loadout_a, loadout_b, map_index)   # карта и отряды пришли от сервера (лок-степ)
 	state.a_first_on_odd = a_first_on_odd
 	board_view.setup(state.board)
 	_set_perspective(my_index)   # свой старт снизу, свои — синие (на весь матч)

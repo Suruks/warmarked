@@ -18,9 +18,6 @@ var ambushes: Array = []   # [{owner_id:int, expire_round:int}]
 var winner: int = -1       # Consts.Player или -1
 
 
-# Стартовые клетки трёх бойцов: A внизу (y=6), B зеркально сверху (y=0), симметрия 180°.
-const _CELLS_A := [Vector2i(1, 6), Vector2i(3, 6), Vector2i(5, 6)]
-const _CELLS_B := [Vector2i(5, 0), Vector2i(3, 0), Vector2i(1, 0)]
 # Классы отряда по умолчанию (когда состав не задан).
 const _DEFAULT_TYPES := [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL]
 
@@ -28,12 +25,13 @@ const _DEFAULT_TYPES := [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.H
 # team_* : массив из TEAM_SIZE бойцов {type, skills} (классы могут повторяться). Пустой -> отряд
 # по умолчанию (Охотник/Фея/Кристалл). Составы обоих игроков обязаны совпадать на сервере и у
 # клиентов (лок-степ) — их канонизирует Loadout перед раздачей.
-func setup(team_a: Array = [], team_b: Array = []) -> void:
-	board = Board.new()
+# map_index — карта из Maps (0 = базовая); стартовые клетки берутся из неё.
+func setup(team_a: Array = [], team_b: Array = [], map_index: int = 0) -> void:
+	board = Board.new(map_index)
 	units.clear()
 	for i in 3:
-		_add_unit(i, Consts.Player.A, _slot(team_a, i), _CELLS_A[i])
-		_add_unit(3 + i, Consts.Player.B, _slot(team_b, i), _CELLS_B[i])
+		_add_unit(i, Consts.Player.A, _slot(team_a, i), board.spawns_a[i])
+		_add_unit(3 + i, Consts.Player.B, _slot(team_b, i), board.spawns_b[i])
 
 
 # Боец на позиции i: {type, skills} из состава, иначе дефолтный класс с пустым китом (→ дефолт).

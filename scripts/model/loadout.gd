@@ -17,6 +17,9 @@ const TEAM_SIZE := 3
 const HEROES := [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL]
 
 static var _team: Array = []   # [{type:int, skills:Array}] длиной TEAM_SIZE
+# Режим «случайный бой»: игрок собрал отряд кнопкой «Рандом» и не правил руками. Тогда в
+# ЛОКАЛЬНЫХ режимах сопернику ролится свой независимый случайный отряд. Сессионный (не на диск).
+static var _random_battle := false
 
 
 # ------------------------------------------------------------------ локальный выбор
@@ -46,6 +49,74 @@ static func set_team(team: Array) -> void:
 # как стартовое наполнение секций и совместимости.
 static func default_hero_skills(hero_type: int) -> Array:
 	return HeroDefs.default_skills(hero_type)
+
+
+# ------------------------------------------------------------------ случайный отряд
+
+static func set_random_battle(v: bool) -> void:
+	_random_battle = v
+
+
+static func is_random_battle() -> bool:
+	return _random_battle
+
+
+# Случайный отряд: ровно по одному каждого класса, случайны только скиллы.
+static func random_team() -> Array:
+	var out: Array = []
+	for h in HEROES:
+		out.append({"type": h, "skills": random_hero(h)})
+	return out
+
+
+# Случайный СБАЛАНСИРОВАННЫЙ кит одного героя из его пула + нейтралов. Rejection sampling по
+# правилам _kit_ok (см. ниже). Не сошлось за 50 попыток → дефолтный кит класса (он тоже валиден).
+static func random_hero(hero_type: int) -> Array:
+	var pool: Array = []
+	for s in HeroDefs.pool(hero_type):
+		pool.append(int(s))
+	for n in HeroDefs.neutrals():
+		pool.append(int(n))
+	for _attempt in 50:
+		var kit := _sample3(pool)
+		if _kit_ok(kit):
+			return HeroDefs.sorted_by_mana(kit)
+	return HeroDefs.default_skills(hero_type)
+
+
+# 3 различных случайных скилла из пула.
+static func _sample3(pool: Array) -> Array:
+	var p := pool.duplicate()
+	p.shuffle()
+	return [p[0], p[1], p[2]]
+
+
+# Правила баланса кита (активный = не пассивка):
+#  R1 ≥1 классовый скилл (не нейтрал) — тройке нужен класс, герой тематичен;
+#  R2 ≤1 пассивка — не «мёртвый» кит, ≥2 кастуемых активки;
+#  R3 ≥1 активка маны ≤1 — играбельно с 1-го хода (старт маны 1);
+#  R4 ≥1 активка маны ≥2 — есть содержание (не «всё по 1»);
+#  R5 ≤1 активка маны ≥4 — кит подъёмен по доходу маны.
+static func _kit_ok(skills: Array) -> bool:
+	var passives := 0
+	var has_class := false
+	var cheap_active := false
+	var meaty_active := false
+	var expensive := 0
+	for s in skills:
+		var def := HeroDefs.skill_def(s)
+		if not HeroDefs.is_neutral(s):
+			has_class = true
+		if def.passive:
+			passives += 1
+			continue
+		if def.mana <= 1:
+			cheap_active = true
+		if def.mana >= 2:
+			meaty_active = true
+		if def.mana >= 4:
+			expensive += 1
+	return has_class and passives <= 1 and cheap_active and meaty_active and expensive <= 1
 
 
 # ------------------------------------------------------------------ сеть

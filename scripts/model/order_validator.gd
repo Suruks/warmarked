@@ -8,7 +8,7 @@ extends RefCounted
 ##   • ход — только единичные орто-шаги, не длиннее MOVE_RANGE (иначе телепорт сквозь стены);
 ##   • геометрия цели — форма и дальность по СМЕЩЕНИЮ (резолвер целит от текущей клетки,
 ##     поэтому смещение позиционно-независимо и валидируется без знания траектории);
-##   • «один скилл не дважды за раунд» (ход — можно многократно);
+##   • «один приказ не дважды за раунд» — включая Ход (герой не ходит в двух слотах);
 ##   • суммарная мана героя за раунд;
 ##   • гейт слотов (дублирует резолвер, но дешевле отсечь заранее).
 ##
@@ -38,7 +38,14 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	if u == null or u.owner != player or not u.alive:
 		return false
 	if o.action == Consts.Action.MOVE:
-		return _move_legal(o.path, u.move_range())
+		if not _move_legal(o.path, u.move_range()):
+			return false
+		# Ход, как и скилл, нельзя занять дважды за раунд одному герою.
+		var mkey := "%d:%d" % [o.hero_id, Consts.Action.MOVE]
+		if seen.has(mkey):
+			return false
+		seen[mkey] = true
+		return true
 	if not (o.action in [Consts.Action.ATTACK, Consts.Action.ABILITY1,
 			Consts.Action.ABILITY2, Consts.Action.ABILITY3]):
 		return false

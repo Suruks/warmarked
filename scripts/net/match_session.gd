@@ -12,9 +12,10 @@ var _orders: Array = [null, null]   # приказы игроков 0/1 (Array[O
 
 
 # loadout_a / loadout_b — сетевые отряды игроков ([[type,s1,s2,s3],...]); санируются здесь же.
-func _init(a_first_on_odd: bool, loadout_a: Array = [], loadout_b: Array = []) -> void:
+# map_index — карта матча (выбрана сервером, едет клиентам тем же RPC).
+func _init(a_first_on_odd: bool, loadout_a: Array = [], loadout_b: Array = [], map_index: int = 0) -> void:
 	state = MatchState.new()
-	state.setup(Loadout.sanitize_team_net(loadout_a), Loadout.sanitize_team_net(loadout_b))
+	state.setup(Loadout.sanitize_team_net(loadout_a), Loadout.sanitize_team_net(loadout_b), map_index)
 	state.a_first_on_odd = a_first_on_odd
 	state.begin_round()   # раунд 1: доход/хаускипинг
 

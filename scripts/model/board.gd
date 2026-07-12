@@ -1,33 +1,26 @@
 class_name Board
 extends RefCounted
 
-## Статическая геометрия поля: грид 7x7, препятствия террейна, точки контроля.
-## Динамика (юниты, капканы) живёт в MatchState. Раскладка симметрична на 180°
-## (зеркало честно по построению, §7).
+## Статическая геометрия поля: грид 7x7, препятствия террейна, точки контроля и спауны.
+## Всё берётся из выбранной карты (Maps). Динамика (юниты, капканы) живёт в MatchState.
 
 var width: int = Consts.BOARD_W
 var height: int = Consts.BOARD_H
 var obstacles: Dictionary = {}       # Vector2i -> true
 var control_points: Array[Vector2i] = []
+var spawns_a: Array[Vector2i] = []   # стартовые клетки игрока A (индекс = позиция в отряде)
+var spawns_b: Array[Vector2i] = []
+var map_index: int = 0
 
 
-func _init() -> void:
-	_build_default_map()
-
-
-func _build_default_map() -> void:
-	# Точки контроля: диагональ через центр (180°-симметрия)
-	control_points = [
-		Vector2i(2, 2), Vector2i(3, 3), Vector2i(4, 4),
-	]
-	# Террейн: «ромб» стен вокруг центра (180°-симметрично, точки/старт свободны)
-	var walls := [
-		Vector2i(3, 1),
-		Vector2i(1, 3), Vector2i(5, 3),
-		Vector2i(3, 5),
-	]
-	for w in walls:
-		obstacles[w] = true
+# По умолчанию — карта 0 (базовая). Матч подставляет случайную/сетевую карту.
+func _init(p_map_index: int = 0) -> void:
+	map_index = p_map_index
+	var m := Maps.parse(p_map_index)
+	obstacles = m.obstacles
+	control_points = m.control_points
+	spawns_a = m.spawns_a
+	spawns_b = m.spawns_b
 
 
 func in_bounds(c: Vector2i) -> bool:

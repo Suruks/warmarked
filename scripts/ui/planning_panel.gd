@@ -12,8 +12,9 @@ extends Control
 signal orders_ready(orders: Array)
 signal progress_changed(filled: Array)   # какие мои слоты заполнены (для индикации сопернику)
 
-const COL_OPP_EMPTY := Color(0.22, 0.25, 0.31)
-const COL_OPP_FILLED := Color(0.07, 0.08, 0.11)
+const COL_OPP_EMPTY := Color(0.44, 0.47, 0.54)    # вражеские слоты — светлее (пустой)
+const COL_OPP_FILLED := Color(0.26, 0.29, 0.35)   # занятый: темнее пустого, но тоже осветлён
+const COL_SLOT_BG := Color(0.46, 0.49, 0.56)   # фон квадратов слотов (светлее тёмной темы кнопок)
 
 # Жёстко заданные позиции (элементы не смещаются по вертикали при смене содержимого)
 const SLOT_BIG := 60
@@ -127,6 +128,11 @@ func _build_ui() -> void:
 		chip.size = Vector2(SLOT_BIG, SLOT_BIG)
 		chip.expand_icon = true
 		chip.add_theme_font_size_override("font_size", 20)
+		for st in ["normal", "hover", "pressed", "focus"]:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = COL_SLOT_BG if st != "hover" else COL_SLOT_BG.lightened(0.08)
+			sb.set_corner_radius_all(6)
+			chip.add_theme_stylebox_override(st, sb)
 		chip.pressed.connect(_on_my_slot_pressed.bind(i))
 		add_child(chip)
 		_slot_chips.append(chip)
@@ -589,11 +595,11 @@ func _update_markers() -> void:
 # ------------------------------------------------------------- вспомогательное
 
 func _skill_usable(u: Unit, action: int) -> bool:
-	if action == Consts.Action.MOVE:
-		return true
-	# один и тот же скилл нельзя применить дважды за раунд (ходить можно многократно)
+	# один и тот же приказ нельзя занять дважды за раунд — теперь включая Ход
 	if _action_used(u.id, action, _active):
 		return false
+	if action == Consts.Action.MOVE:
+		return true
 	if action == Consts.Action.ATTACK:
 		return true
 	var ad := HeroDefs.for_action(u.hero_type, action, u.skills)
@@ -713,20 +719,18 @@ func _origin_for(hero_id: int, upto_slot: int) -> Vector2i:
 
 func _on_done() -> void:
 	var reserved := {}
-	var seen := {}   # "hero:action" — контроль «один скилл не дважды»
+	var seen := {}   # "hero:action" — контроль «один приказ не дважды» (включая Ход)
 	for i in Consts.ORDER_SLOTS:
 		var hid: int = slot_hero[i]
 		if hid < 0 or slot_action[i] == Consts.Action.EMPTY:
 			continue
 		var u := state.get_unit(hid)
-		if slot_action[i] != Consts.Action.MOVE:
-			var key := "%d:%d" % [hid, slot_action[i]]
-			if seen.has(key):
-				var nm := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills).name
-				_err_lbl.text = "%s: «%s» нельзя применить дважды за раунд" % [u.full_name(), nm]
-				return
-			seen[key] = true
 		var ad := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills)
+		var key := "%d:%d" % [hid, slot_action[i]]   # Ход тоже в контроле дублей
+		if seen.has(key):
+			_err_lbl.text = "%s: «%s» нельзя занять дважды за раунд" % [u.full_name(), ad.name]
+			return
+		seen[key] = true
 		if ad.slot_gate.size() > 0 and not (i in ad.slot_gate):
 			_err_lbl.text = "%s: %s только в слотах %s" % [u.full_name(), ad.name, str(_gate_human(ad.slot_gate))]
 			return

@@ -37,6 +37,7 @@ func _initialize() -> void:
 	test_allies_do_not_block_movement()
 	test_respawn_resets_mana()
 	test_validator_move_rules()
+	test_validator_rejects_second_move()
 	test_validator_target_geometry()
 	test_validator_mana_gate_and_double_cast()
 	test_validator_rejects_foreign_and_dead()
@@ -638,6 +639,25 @@ func test_validator_move_rules() -> void:
 	_check(not out[1].is_empty(), "валидатор: ход из двух орто-шагов принят")
 	_check(out[2].is_empty(), "валидатор: ход длиннее MOVE_RANGE отклонён")
 	_check(out[3].is_empty(), "валидатор: диагональный шаг отклонён")
+
+
+func test_validator_rejects_second_move() -> void:
+	# Новое правило: один герой не ходит дважды за раунд (Ход, как и скилл, — один раз).
+	var s := _fresh()
+	_place(s, 0, Vector2i(3, 4))     # A hunter
+	var o := _slots()
+	o[0] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])   # первый ход — легален
+	o[1] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])   # второй ход тем же героем
+	var out := OrderValidator.sanitize(s, o, Consts.Player.A)
+	_check(not out[0].is_empty(), "валидатор: первый Ход принят")
+	_check(out[1].is_empty(), "валидатор: второй Ход того же героя отклонён")
+	# но Ход другим героем в том же раунде — можно
+	_place(s, 1, Vector2i(1, 4))
+	var o2 := _slots()
+	o2[0] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])
+	o2[1] = Order.make_move(1, [Vector2i(1, 0)] as Array[Vector2i])
+	var out2 := OrderValidator.sanitize(s, o2, Consts.Player.A)
+	_check(not out2[0].is_empty() and not out2[1].is_empty(), "валидатор: ходы РАЗНЫХ героев приняты")
 
 
 func test_validator_target_geometry() -> void:
