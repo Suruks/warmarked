@@ -161,8 +161,8 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _cheb(off) == 1
 		Consts.Skill.PRECISE:     # строго дальность PRECISE_RANGE
 			return _man(off) == Consts.PRECISE_RANGE
-		Consts.Skill.HUNT_MARK:   # в радиусе HUNT_RANGE
-			return _man(off) >= 1 and _man(off) <= Consts.HUNT_RANGE
+		Consts.Skill.HUNT_MARK:   # по прямой (орто) линии, 1..HUNT_RANGE
+			return _ray(off) >= 1 and _ray(off) <= Consts.HUNT_RANGE
 		Consts.Skill.NET:         # в радиусе NET_RANGE
 			return _man(off) >= 1 and _man(off) <= Consts.NET_RANGE
 		Consts.Skill.BLEED:       # враг в радиусе BLEED_RANGE

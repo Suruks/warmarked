@@ -208,8 +208,12 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 					var c := origin + Vector2i(dx, dy)
 					if board.is_passable(c):
 						out.append(c)
-		Consts.Skill.HUNT_MARK:  # враг в радиусе HUNT_RANGE (манхэттен)
-			_ring(board, origin, 1, Consts.HUNT_RANGE, out)
+		Consts.Skill.HUNT_MARK:  # прямая (орто) линия 1..HUNT_RANGE, чистая по террейну
+			for d in Consts.DIRS4:
+				for r in range(1, Consts.HUNT_RANGE + 1):
+					var c: Vector2i = origin + d * r
+					if board.is_passable(c) and board.is_clear_line(origin, c):
+						out.append(c)
 		Consts.Skill.NET:  # цель в радиусе NET_RANGE (манхэттен)
 			_ring(board, origin, 1, Consts.NET_RANGE, out)
 		Consts.Skill.BLEED:  # враг в радиусе BLEED_RANGE (манхэттен)

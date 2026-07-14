@@ -935,11 +935,11 @@ func test_precise_fizzles_off_range() -> void:
 
 
 func test_hunt_mark_adds_flat_hunter_damage() -> void:
-	# Охота началась: помеченная цель получает +HUNT_BONUS_DMG урона от атаки Охотника
+	# Охота началась (по прямой): помеченная цель получает +HUNT_BONUS_DMG урона от атаки Охотника
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)  # A hunter
 	h.mana = Consts.HUNT_MANA
-	var v := _place(s, 3, Vector2i(3, 2), 10)                    # B hunter на дальности 2
+	var v := _place(s, 3, Vector2i(3, 2), 10)                    # B hunter по прямой на дальности 2
 	var oa := _slots()
 	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # метка
 	oa[1] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))    # выстрел по помеченному
@@ -947,6 +947,32 @@ func test_hunt_mark_adds_flat_hunter_damage() -> void:
 	var expect := 10 - (Consts.HUNTER_ATK_DMG + Consts.HUNT_BONUS_DMG)
 	_check(v.hp == expect, "охота: усиленный урон Охотника, HP %d [%d]" % [expect, v.hp])
 	_check(v.hunt_turns == Consts.HUNT_TURNS, "охота: метка взведена на %d ходов [%d]" % [Consts.HUNT_TURNS, v.hunt_turns])
+
+
+func test_hunt_mark_marks_first_on_line() -> void:
+	# Охота бьёт по прямой: метит ПЕРВОГО врага на луче, дальний за ним не задет
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)   # A hunter
+	h.mana = Consts.HUNT_MANA
+	var near := _place(s, 3, Vector2i(3, 3), 10)                  # ближний враг на линии
+	var far := _place(s, 4, Vector2i(3, 2), 10)                   # дальний враг на той же линии
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))   # целим в дальнюю клетку
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(near.hunt_turns == Consts.HUNT_TURNS, "охота: помечен первый на линии [%d]" % near.hunt_turns)
+	_check(far.hunt_turns == 0, "охота: дальний за первым не помечен [%d]" % far.hunt_turns)
+
+
+func test_hunt_mark_fizzles_off_line() -> void:
+	# Врага нет на прямой линии к цели — метка физзлит (никого не метит)
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)   # A hunter
+	h.mana = Consts.HUNT_MANA
+	var off := _place(s, 3, Vector2i(5, 2), 10)                   # враг в стороне, не на луче x=3
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))   # прямая вверх, на линии пусто
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(off.hunt_turns == 0, "охота: враг вне линии не помечен [%d]" % off.hunt_turns)
 
 
 func test_hunt_mark_expires_after_turns() -> void:

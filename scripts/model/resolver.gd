@@ -441,11 +441,13 @@ func _sk_precise(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> 
 	_deal_damage(state, v, Consts.PRECISE_DMG, unit.owner, events, "меткий выстрел", unit)
 
 
-# Охота началась — метка на враге на HUNT_TURNS ходов: урон Охотника по нему увеличен на HUNT_BONUS_DMG
+# Охота началась — выстрел по прямой линии: метит ПЕРВОГО врага на луче до цели на
+# HUNT_TURNS ходов (урон Охотника по нему увеличен на HUNT_BONUS_DMG). Первым на линии может
+# оказаться и союзник — тогда он перехватывает выстрел и метка физзлит (как пуля Снайпа).
 func _sk_hunt(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
-	var v := state.unit_at(et)
+	var v := _first_unit_on_line(state, unit.cell, et)
 	if v == null or v.owner == unit.owner:
-		_push(events, state, Consts.EventType.FIZZLE, "Охота началась: на (%d,%d) нет врага" % [et.x, et.y])
+		_push(events, state, Consts.EventType.FIZZLE, "Охота началась: на линии к (%d,%d) нет врага" % [et.x, et.y])
 		return
 	v.hunt_turns = Consts.HUNT_TURNS
 	_push(events, state, Consts.EventType.HUNT_MARKED,

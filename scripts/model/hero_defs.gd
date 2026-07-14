@@ -126,7 +126,7 @@ static func skill_def(skill: int) -> AbilityDef:
 				"%d урона строго по клетке на дальности %d (прямое попадание, не перехватывается)" % [Consts.PRECISE_DMG, Consts.PRECISE_RANGE])
 		Consts.Skill.HUNT_MARK:
 			return AbilityDef.new("Охота началась", Consts.HUNT_MANA, Target.CELL,
-				"метка на враге на %d хода: +%d урона по нему от атак и скиллов Охотника" % [Consts.HUNT_TURNS, Consts.HUNT_BONUS_DMG])
+				"по прямой, дальность %d: метит первого врага на %d хода — +%d урона по нему от атак и скиллов Охотника" % [Consts.HUNT_RANGE, Consts.HUNT_TURNS, Consts.HUNT_BONUS_DMG])
 		Consts.Skill.RETREAT:
 			return AbilityDef.new("Отступление", Consts.RETREAT_MANA, Target.MOVE_PATH,
 				"если враг в соседней клетке — путь до %d клеток (относительный, как ход)" % Consts.RETREAT_RANGE)
