@@ -1832,7 +1832,7 @@ func test_layout_recompute_matches_original_at_baseline() -> void:
 	_check(is_equal_approx(Layout.BOARD_PX, 532.0), "layout: BOARD_PX = 532 [%f]" % Layout.BOARD_PX)
 	_check(is_equal_approx(Layout.SCREEN_W, 540.0), "layout: SCREEN_W = 540 [%f]" % Layout.SCREEN_W)
 	_check(is_equal_approx(Layout.SCREEN_H, 1200.0), "layout: SCREEN_H = 1200 [%f]" % Layout.SCREEN_H)
-	_check(is_equal_approx(Layout.PANEL_H, 430.0), "layout: PANEL_H = 430 [%f]" % Layout.PANEL_H)
+	_check(is_equal_approx(Layout.PANEL_H, 454.0), "layout: PANEL_H = 454 [%f]" % Layout.PANEL_H)
 
 
 func test_layout_recompute_grows_cell_on_wider_screen() -> void:
@@ -1841,7 +1841,7 @@ func test_layout_recompute_grows_cell_on_wider_screen() -> void:
 	Layout.recompute(700.0, 2000.0)
 	_check(Layout.cell_size > 76.0, "layout: на широком экране клетка выросла [%f]" % Layout.cell_size)
 	_check(is_equal_approx(Layout.SCREEN_W, 700.0), "layout: SCREEN_W подстроился под ширину [%f]" % Layout.SCREEN_W)
-	_check(Layout.PANEL_H > 430.0, "layout: нижняя панель тоже выросла [%f]" % Layout.PANEL_H)
+	_check(Layout.PANEL_H > 454.0, "layout: нижняя панель тоже выросла [%f]" % Layout.PANEL_H)
 	# восстановить базовое состояние для остальных тестов (Layout — статический синглтон)
 	Layout.recompute(540.0, 1200.0)
 

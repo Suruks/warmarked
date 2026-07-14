@@ -12,7 +12,8 @@ const DEFAULT_HOST := "wss://warmarked.duckdns.org"
 var state: MatchState
 var resolver := Resolver.new()
 
-const OPT_SIZE := 72   # кнопка настроек — крупная зона нажатия, палец на мобилке попадает уверенно (x1.5)
+const OPT_SIZE := 72    # кнопка настроек — крупная зона нажатия, палец на мобилке попадает уверенно (x1.5)
+const OPT_TOP_PAD := 10 # отступ кнопки от самого верха экрана (не от TOP_MARGIN — кнопка крупнее его)
 
 var board_view: BoardView
 var _opp_bar: ScoreBar   # очки противника — сверху
@@ -215,9 +216,12 @@ func _apply_layout() -> void:
 	panel_host.custom_minimum_size = Vector2(Layout.PANEL_W, Layout.PANEL_H)
 	panel_host.size = panel_host.custom_minimum_size
 
+	# Кнопка крупнее TOP_MARGIN — свисает поверх верха полосы очков соперника (та рисуется
+	# первой, кнопка последней). Не страшно: очки в полосе центрированы по горизонтали и
+	# ничем не перекрываются, а сам TOP_MARGIN остаётся маленьким — под клетку доски больше места.
 	_options_btn.position = Vector2(
 		Layout.SCREEN_W - OPT_SIZE - Layout.BOARD_X,
-		(Layout.TOP_MARGIN - OPT_SIZE) / 2.0 + 4.0)   # чуть ниже центра отступа
+		OPT_TOP_PAD)
 
 
 func _connect_net() -> void:
