@@ -17,9 +17,14 @@ var _opp_bar: ScoreBar   # очки противника — сверху
 var _my_bar: ScoreBar    # очки игрока — под доской
 var panel_host: MarginContainer
 var _menu_art: TextureRect   # арт в пустой верхней области меню (вне матча)
-var _background: TextureRect   # фон в матче и коллекции (позади всего)
+var _background: TextureRect   # фон в матче и коллекции (позади всего, на весь реальный экран)
 var _effect_panel: RichTextLabel   # эффекты выделенного юнита — между очками и скиллами
 var _options_btn: TextureButton    # кнопка настроек — справа в верхнем отступе экрана боя
+# Фиксированная область раскладки (Layout.SCREEN_W x Layout.SCREEN_H), заякоренная по центру
+# реального экрана. Все элементы боя/меню — её дети: их абсолютные координаты (Layout.*)
+# остаются как есть, а центрирование/края реального (возможно более широкого — EXPAND) экрана
+# обеспечивает сам _content своими анкорами. Фон (_background) — вне неё, на весь экран.
+var _content: Control
 
 # локальный режим
 var _vs_ai := false          # PvE hotseat: игрок B — бот (AI.plan), человек играет за A
@@ -77,7 +82,9 @@ func _adapt_stretch_for_orientation() -> void:
 func _build_layout() -> void:
 	Layout.verify_project_settings()
 
-	# Фон матча и коллекции — на весь экран, позади всего остального (первым в дереве).
+	# Фон матча и коллекции — на весь РЕАЛЬНЫЙ экран (не только раскладку), позади всего
+	# остального (первым в дереве, вне _content) — иначе на широких/EXPAND-экранах по бокам
+	# от центрированной раскладки было бы пусто.
 	_background = TextureRect.new()
 	_background.texture = Icons.tex_opt("res://graphics/background.png")
 	_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -85,6 +92,21 @@ func _build_layout() -> void:
 	_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_background.visible = false
 	add_child(_background)
+
+	# Раскладка боя/меню — фиксированного размера Layout.SCREEN_W x Layout.SCREEN_H, центрирована
+	# по горизонтали в реальном экране (анкоры 0.5/0.5 + офсеты ±половина ширины). На обычном
+	# экране (совпадающие пропорции) офсеты дают ровно (0,0)..(SCREEN_W,SCREEN_H) — как раньше.
+	_content = Control.new()
+	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.anchor_left = 0.5
+	_content.anchor_right = 0.5
+	_content.anchor_top = 0.0
+	_content.anchor_bottom = 0.0
+	_content.offset_left = -Layout.SCREEN_W / 2.0
+	_content.offset_right = Layout.SCREEN_W / 2.0
+	_content.offset_top = 0.0
+	_content.offset_bottom = Layout.SCREEN_H
+	add_child(_content)
 
 	# Арт-заставка меню в верхней области, где вне матча нет доски. Позади всего остального.
 	_menu_art = TextureRect.new()
@@ -94,7 +116,7 @@ func _build_layout() -> void:
 	_menu_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_menu_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_menu_art.visible = false
-	add_child(_menu_art)
+	_content.add_child(_menu_art)
 
 	# Версия — маленькая надпись в правом верхнем углу главного меню (белым, поверх арта).
 	# Ребёнок _menu_art: показывается/прячется вместе с ним, отдельно видимость вести не нужно.
@@ -109,18 +131,18 @@ func _build_layout() -> void:
 
 	# очки противника — сверху (вместо строки инфо)
 	_opp_bar = ScoreBar.new()
-	add_child(_opp_bar)
+	_content.add_child(_opp_bar)
 	_opp_bar.position = Vector2(Layout.BOARD_X, Layout.SCORE_TOP_Y)
 	_opp_bar.size = Vector2(Layout.BOARD_PX, Layout.SCORE_H)
 
 	board_view = BoardView.new()
 	board_view.position = Vector2(Layout.BOARD_X, Layout.BOARD_Y)
-	add_child(board_view)
+	_content.add_child(board_view)
 	board_view.setup(Board.new())   # инициализация пустой доской; матч подменит на state.board
 
 	# очки игрока — под доской, над панелью
 	_my_bar = ScoreBar.new()
-	add_child(_my_bar)
+	_content.add_child(_my_bar)
 	_my_bar.position = Vector2(Layout.BOARD_X, Layout.SCORE_BOTTOM_Y)
 	_my_bar.size = Vector2(Layout.BOARD_PX, Layout.SCORE_H)
 
@@ -133,14 +155,14 @@ func _build_layout() -> void:
 	_effect_panel.add_theme_font_size_override("bold_font_size", 16)
 	_effect_panel.position = Vector2(Layout.BOARD_X + 6, Layout.EFFECT_Y)
 	_effect_panel.size = Vector2(Layout.PANEL_W - 12, Layout.EFFECT_H)
-	add_child(_effect_panel)
+	_content.add_child(_effect_panel)
 	board_view.selected_effects_changed.connect(func(text): _effect_panel.text = text)
 
 	panel_host = MarginContainer.new()
 	panel_host.position = Vector2(Layout.BOARD_X, Layout.PANEL_TOP)
 	panel_host.custom_minimum_size = Vector2(Layout.PANEL_W, Layout.PANEL_H)
 	panel_host.size = panel_host.custom_minimum_size
-	add_child(panel_host)
+	_content.add_child(panel_host)
 
 	# кнопка настроек — в правом краю верхнего отступа, видна только в матче.
 	# Добавляем последней, чтобы рисовалась поверх остального.
@@ -155,7 +177,7 @@ func _build_layout() -> void:
 		Layout.SCREEN_W - opt_size - Layout.BOARD_X,
 		(Layout.TOP_MARGIN - opt_size) / 2)
 	_options_btn.pressed.connect(_on_options_pressed)
-	add_child(_options_btn)
+	_content.add_child(_options_btn)
 
 	# доска и счёт скрыты вне матча — в меню/коллекции их нет, только в игре
 	board_view.visible = false
