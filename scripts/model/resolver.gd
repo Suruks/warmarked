@@ -65,7 +65,6 @@ func _do_move(state: MatchState, unit: Unit, path: Array, events: Array) -> void
 
 # Проход по относительному пути шагов-смещений (общий для Хода и Отступления).
 func _walk_path(state: MatchState, unit: Unit, path: Array, events: Array) -> void:
-	var start := unit.cell
 	var cur := unit.cell
 	for i in path.size():
 		var next: Vector2i = cur + path[i]
@@ -86,31 +85,27 @@ func _walk_path(state: MatchState, unit: Unit, path: Array, events: Array) -> vo
 			cur = next   # проходим сквозь союзника, клетку не занимаем
 			continue
 		cur = next
-		# шаги хода не тикают кровавый след по отдельности — тик один раз за всё перемещение (ниже)
+		# кровавый след тикает за КАЖДУЮ клетку пути — это делает _enter сам
 		_enter(state, unit, cur, events, unit.owner, Consts.EventType.MOVE,
-			"%s -> (%d,%d)" % [unit.full_name(), cur.x, cur.y], false)
+			"%s -> (%d,%d)" % [unit.full_name(), cur.x, cur.y])
 		if not unit.alive:
 			return   # погиб в пути (капкан) — тик кровотечения уже неактуален
 		if unit.immobilized:   # наступил на капкан посреди пути — застрял здесь, дальше не идёт
 			break
-	# Кровавый след: одно перемещение-действие = один тик, если юнит реально сдвинулся
-	if unit.cell != start:
-		_bleed_tick(state, unit, events)
 
 
-# Перемещает юнита на клетку, логирует и проверяет капканы/засады
-# tick_bleed=false для отдельных шагов многоклеточного хода — кровавый след тикает раз за
-# ВСЁ перемещение-действие (см. _walk_path), а не за каждую клетку.
-func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String, tick_bleed: bool = true) -> void:
+# Перемещает юнита на клетку, логирует и проверяет капканы/засады. Кровавый след тикает
+# за КАЖДУЮ клетку, на которую юнит входит (см. _bleed_tick) — в т.ч. по одной за шаг
+# многоклеточного хода (см. _walk_path).
+func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String) -> void:
 	unit.cell = cell
 	unit.moved_this_round = true   # «Снайпер»: любое перемещение считается движением
 	_push(events, state, ev_type, text, {"actor": unit.id, "to_cell": cell})
 	_check_triggers(state, unit, cell, events, src_player)
-	if tick_bleed:
-		_bleed_tick(state, unit, events)
+	_bleed_tick(state, unit, events)
 
 
-# Кровавый след: одно перемещение-действие помеченного юнита наносит ему BLEED_DMG
+# Кровавый след: каждый вход помеченного юнита на новую клетку наносит ему BLEED_DMG
 func _bleed_tick(state: MatchState, unit: Unit, events: Array) -> void:
 	if unit.alive and unit.bleed_turns > 0:
 		_deal_damage(state, unit, Consts.BLEED_DMG, unit.bleed_owner, events, "кровотечение")

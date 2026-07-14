@@ -157,7 +157,7 @@ static func _skill_def_raw(skill: int) -> AbilityDef:
 					% [Consts.MINEFIELD_COUNT, Consts.MINEFIELD_RADIUS, Consts.MINEFIELD_DMG])
 		Consts.Skill.BLEED:
 			return AbilityDef.new("Кровавый след", Consts.BLEED_MANA, Target.CELL,
-				"метка на враге в радиусе %d на %d хода: каждое перемещение цели -> %d урона" % [Consts.BLEED_RANGE, Consts.BLEED_TURNS, Consts.BLEED_DMG])
+				"метка на враге в радиусе %d на %d хода: каждая клетка перемещения цели -> %d урона" % [Consts.BLEED_RANGE, Consts.BLEED_TURNS, Consts.BLEED_DMG])
 		Consts.Skill.KNOCKDOWN:
 			return AbilityDef.new("Сбить с ног", Consts.KNOCKDOWN_MANA, Target.CELL,
 				"прямая %d-%d: %d урона первому на линии и отброс на %d клетку от Охотника" % [Consts.KNOCKDOWN_MIN, Consts.KNOCKDOWN_MAX, Consts.KNOCKDOWN_DMG, Consts.KNOCKDOWN_PUSH])

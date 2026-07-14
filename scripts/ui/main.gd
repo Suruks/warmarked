@@ -80,6 +80,17 @@ func _build_layout() -> void:
 	_menu_art.visible = false
 	add_child(_menu_art)
 
+	# Версия — маленькая надпись в правом верхнем углу главного меню (белым, поверх арта).
+	# Ребёнок _menu_art: показывается/прячется вместе с ним, отдельно видимость вести не нужно.
+	var version_lbl := Label.new()
+	version_lbl.text = "v%d" % Consts.PROTOCOL_VERSION
+	version_lbl.add_theme_font_size_override("font_size", 13)
+	version_lbl.add_theme_color_override("font_color", Color.WHITE)
+	version_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	version_lbl.size = Vector2(64, 18)
+	version_lbl.position = Vector2(Layout.SCREEN_W - 64 - 8, 8)
+	_menu_art.add_child(version_lbl)
+
 	# очки противника — сверху (вместо строки инфо)
 	_opp_bar = ScoreBar.new()
 	add_child(_opp_bar)

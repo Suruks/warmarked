@@ -60,8 +60,8 @@ func _initialize() -> void:
 	test_minefield_places_traps()
 	test_minefield_damages_anyone()
 	test_validator_minefield_cells()
-	test_bleed_marks_and_ticks_per_action()
-	test_bleed_ticks_once_per_move_action()
+	test_bleed_marks_and_ticks_per_cell()
+	test_bleed_ticks_per_cell_across_actions()
 	test_bleed_ticks_on_swap()
 	test_bleed_no_tick_without_move()
 	test_bleed_expires_after_turns()
@@ -1108,8 +1108,8 @@ func test_validator_minefield_cells() -> void:
 	_check(_san1(s, dup).is_empty(), "валидатор: две мины в одну клетку отклонены")
 
 
-func test_bleed_marks_and_ticks_per_action() -> void:
-	# Кровавый след: метка на враге в радиусе 2; ход на 2 клетки = ОДНО действие = ОДИН тик
+func test_bleed_marks_and_ticks_per_cell() -> void:
+	# Кровавый след: метка на враге в радиусе 2; ход на 2 клетки = ДВА тика (по клетке, не по действию)
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.BLEED)   # A hunter
 	h.mana = Consts.BLEED_MANA
@@ -1121,11 +1121,11 @@ func test_bleed_marks_and_ticks_per_action() -> void:
 	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
 	_check(foe.bleed_turns == Consts.BLEED_TURNS, "кровавый след: метка на %d хода [%d]" % [Consts.BLEED_TURNS, foe.bleed_turns])
 	_check(foe.cell == Vector2i(1, 2), "кровавый след: цель переместилась [%s]" % foe.cell)
-	_check(foe.hp == 10 - Consts.BLEED_DMG, "кровавый след: ход на 2 клетки -> 1 тик, HP %d [%d]" % [10 - Consts.BLEED_DMG, foe.hp])
+	_check(foe.hp == 10 - 2 * Consts.BLEED_DMG, "кровавый след: ход на 2 клетки -> 2 тика, HP %d [%d]" % [10 - 2 * Consts.BLEED_DMG, foe.hp])
 
 
-func test_bleed_ticks_once_per_move_action() -> void:
-	# Два отдельных хода-действия за раунд -> два тика (подтверждает «за действие», а не за клетку)
+func test_bleed_ticks_per_cell_across_actions() -> void:
+	# Два отдельных хода-действия по 1 клетке за раунд -> два тика (столько же клеток, столько тиков)
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.BLEED)
 	h.mana = Consts.BLEED_MANA
@@ -1137,7 +1137,7 @@ func test_bleed_ticks_once_per_move_action() -> void:
 	ob[1] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])    # действие 2
 	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
 	_check(foe.cell == Vector2i(1, 2), "кровавый след: 2 хода -> сдвинулся на 2 [%s]" % foe.cell)
-	_check(foe.hp == 10 - 2 * Consts.BLEED_DMG, "кровавый след: 2 действия -> 2 тика, HP %d [%d]" % [10 - 2 * Consts.BLEED_DMG, foe.hp])
+	_check(foe.hp == 10 - 2 * Consts.BLEED_DMG, "кровавый след: 2 клетки (в 2 действиях) -> 2 тика, HP %d [%d]" % [10 - 2 * Consts.BLEED_DMG, foe.hp])
 
 
 func test_bleed_ticks_on_swap() -> void:
