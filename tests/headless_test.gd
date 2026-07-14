@@ -899,8 +899,8 @@ func test_precise_fizzles_off_range() -> void:
 	_check(v.hp == 10, "меткий: цель в упор не поражена [%d]" % v.hp)
 
 
-func test_hunt_mark_doubles_hunter_damage() -> void:
-	# Охота началась: помеченная цель получает ×HUNT_MULT урона от атаки Охотника
+func test_hunt_mark_adds_flat_hunter_damage() -> void:
+	# Охота началась: помеченная цель получает +HUNT_BONUS_DMG урона от атаки Охотника
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)  # A hunter
 	h.mana = Consts.HUNT_MANA
@@ -909,8 +909,19 @@ func test_hunt_mark_doubles_hunter_damage() -> void:
 	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # метка
 	oa[1] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))    # выстрел по помеченному
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
-	var expect := 10 - Consts.HUNTER_ATK_DMG * Consts.HUNT_MULT
-	_check(v.hp == expect, "охота: удвоенный урон Охотника, HP %d [%d]" % [expect, v.hp])
+	var expect := 10 - (Consts.HUNTER_ATK_DMG + Consts.HUNT_BONUS_DMG)
+	_check(v.hp == expect, "охота: усиленный урон Охотника, HP %d [%d]" % [expect, v.hp])
+	_check(v.hunt_turns == Consts.HUNT_TURNS, "охота: метка взведена на %d ходов [%d]" % [Consts.HUNT_TURNS, v.hunt_turns])
+
+
+func test_hunt_mark_expires_after_turns() -> void:
+	# Метка держится через раунды и истекает через HUNT_TURNS ходов (как Кровавый след)
+	var s := _fresh()
+	var foe := _place(s, 3, Vector2i(3, 2), 10)
+	foe.hunt_turns = Consts.HUNT_TURNS
+	for i in Consts.HUNT_TURNS:
+		s.begin_round()
+	_check(foe.hunt_turns == 0, "охота: истекла после %d ходов [%d]" % [Consts.HUNT_TURNS, foe.hunt_turns])
 
 
 func test_retreat_moves_when_enemy_adjacent() -> void:

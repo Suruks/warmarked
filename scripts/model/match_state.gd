@@ -114,7 +114,6 @@ func begin_round() -> Array:
 		u.reflexes_armed = false
 		u.hardened = false
 		u.shards_armed = false
-		u.hunted = false
 		u.disoriented = false   # дезориентация действует лишь на свой раунд
 		u.shell_used = false     # «Кристальный панцирь» — срезка снова доступна
 		u.block_amount = 0       # «Блок» — запас поглощения сбрасывается
@@ -131,6 +130,8 @@ func begin_round() -> Array:
 			u.no_attack_turns -= 1
 		if u.slow_turns > 0:
 			u.slow_turns -= 1
+		if u.hunt_turns > 0:
+			u.hunt_turns -= 1
 		if u.alive and round_num > 1:
 			u.mana += 1
 	# Респ мёртвых
@@ -191,6 +192,7 @@ func _try_respawn(u: Unit, events: Array) -> void:
 	u.bleed_owner = -1
 	u.no_attack_turns = 0
 	u.slow_turns = 0
+	u.hunt_turns = 0
 	u.disoriented = false
 	events.append(_ev(Consts.EventType.RESPAWN,
 		"%s воскрешается на (%d,%d)" % [u.full_name(), cell.x, cell.y]))
