@@ -350,6 +350,7 @@ func _status(text: String, show_cancel: bool = false) -> void:
 func _show_menu() -> void:
 	state = null
 	_update_score_bars()
+	_background.visible = true   # фон на весь экран — без него ниже арта пусто на растянутых экранах
 	_menu_art.visible = true
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
