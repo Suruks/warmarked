@@ -55,7 +55,7 @@ func _initialize() -> void:
 	test_swap_exchanges_positions()
 	test_precise_hits_at_exact_range()
 	test_precise_fizzles_off_range()
-	test_hunt_mark_doubles_hunter_damage()
+	test_hunt_mark_adds_flat_hunter_damage()
 	test_retreat_moves_when_enemy_adjacent()
 	test_retreat_fizzles_without_enemy()
 	test_net_immobilizes_target()
@@ -160,18 +160,18 @@ func test_interleave_blocks_collision() -> void:
 func test_trap_immobilize_then_snipe() -> void:
 	var s := _fresh()
 	_place(s, 0, Vector2i(3, 4)).mana = Consts.TRAP_MANA + Consts.SNIPE_MANA   # A hunter
-	var b := _place(s, 5, Vector2i(1, 4))            # B crystal (полное HP)
+	var b := _place(s, 5, Vector2i(2, 2))            # B crystal (полное HP)
 	var oa := _slots()
-	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(2, 4))   # капкан
-	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(2, 4))   # снайп (слот 3)
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))   # капкан на (3,2)
+	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(3, 2))   # снайп по (3,2): дистанция 2 — легально
 	var ob := _slots()
-	ob[0] = Order.make_move(5, [Vector2i(1, 0)] as Array[Vector2i]) # (1,4)->(2,4) входит в капкан
+	ob[0] = Order.make_move(5, [Vector2i(1, 0)] as Array[Vector2i]) # (2,2)->(3,2) входит в капкан
 	var r := Resolver.new()
 	r.resolve(s, oa, ob, Consts.Player.A)
 	var expect := Consts.CRYSTAL_HP - Consts.TRAP_DMG - Consts.SNIPE_DMG
 	_check(b.hp == expect, "капкан+снайп по обездвиженному: HP %d [%d]" % [expect, b.hp])
 	_check(b.immobilized, "капкан выставил обездвиживание сразу")
-	_check(b.cell == Vector2i(2, 4), "жертва на клетке капкана")
+	_check(b.cell == Vector2i(3, 2), "жертва на клетке капкана")
 
 
 func test_snipe_slot_gate() -> void:
@@ -760,23 +760,28 @@ func test_validator_rejects_second_move() -> void:
 
 
 func test_validator_target_geometry() -> void:
+	# Геометрию цели авторитетно проверяет OrderValidator._target_legal (его зовёт резолвер и
+	# физзлит нелегальное). Проверяем ПРАВИЛО напрямую — sanitize геометрию уже не режет.
 	var s := _fresh()
-	_place(s, 0, Vector2i(3, 4))     # A hunter
-	_place(s, 1, Vector2i(2, 4))     # A fairy
-	_check(not _san1(s, Order.make(0, Consts.Action.ATTACK, Vector2i(3, 1), Vector2i(0, -3), true)).is_empty(),
-		"валидатор: выстрел на 3 клетки принят")
-	_check(_san1(s, Order.make(0, Consts.Action.ATTACK, Vector2i(3, 3), Vector2i(0, -1), true)).is_empty(),
-		"валидатор: выстрел в упор (дистанция 1) отклонён")
-	_check(_san1(s, Order.make(0, Consts.Action.ATTACK, Vector2i(2, 3), Vector2i(-1, -1), true)).is_empty(),
-		"валидатор: выстрел по диагонали отклонён")
-	_check(_san1(s, Order.make(1, Consts.Action.ATTACK, Vector2i(6, 4), Vector2i(4, 0), true)).is_empty(),
-		"валидатор: ближний удар Феи через всю доску отклонён")
-	_check(not _san1(s, Order.make(1, Consts.Action.ATTACK, Vector2i(3, 3), Vector2i(1, -1), true)).is_empty(),
-		"валидатор: удар Феи по диагонали принят")
-	# Лечение вне радиуса 2
-	_place(s, 1, Vector2i(2, 4)).mana = Consts.HEAL_MANA
-	_check(_san1(s, Order.make(1, Consts.Action.ABILITY3, Vector2i(2, 0), Vector2i(0, -4), true)).is_empty(),
-		"валидатор: лечение через всю доску отклонено")
+	var hunter := s.get_unit(0)
+	hunter.skills = [Consts.Skill.TRAP, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]   # без «Снайпера» → строгие 2-3
+	var fairy := s.get_unit(1)
+	_check(OrderValidator._target_legal(hunter, Consts.Action.ATTACK, Vector2i(0, -3)),
+		"геометрия: выстрел на 3 клетки — легален")
+	_check(not OrderValidator._target_legal(hunter, Consts.Action.ATTACK, Vector2i(0, -1)),
+		"геометрия: выстрел в упор (дистанция 1) — нелегален")
+	_check(not OrderValidator._target_legal(hunter, Consts.Action.ATTACK, Vector2i(-1, -1)),
+		"геометрия: выстрел по диагонали — нелегален")
+	_check(not OrderValidator._target_legal(fairy, Consts.Action.ATTACK, Vector2i(4, 0)),
+		"геометрия: ближний удар Феи через всю доску — нелегален")
+	_check(OrderValidator._target_legal(fairy, Consts.Action.ATTACK, Vector2i(1, -1)),
+		"геометрия: удар Феи по диагонали — легален")
+	# Лечение — радиус 2 (ставим HEAL в ABILITY1)
+	fairy.skills = [Consts.Skill.HEAL, Consts.Skill.CANCEL, Consts.Skill.FLASH]
+	_check(not OrderValidator._target_legal(fairy, Consts.Action.ABILITY1, Vector2i(0, -4)),
+		"геометрия: лечение через всю доску — нелегально")
+	_check(OrderValidator._target_legal(fairy, Consts.Action.ABILITY1, Vector2i(0, -2)),
+		"геометрия: лечение в радиусе 2 — легально")
 
 
 func test_validator_mana_gate_and_double_cast() -> void:
@@ -1395,18 +1400,17 @@ func test_sniper_boosts_basic_attack_when_still() -> void:
 	ob[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))
 	Resolver.new().resolve(s2, ob, _slots(), Consts.Player.A)
 	_check(v2.hp == 30 - Consts.HUNTER_ATK_DMG, "снайпер: двигался -> без бонуса [%d]" % v2.hp)
-	# дальность: не двигался -> дальний выстрел разрешён валидатором; двигался -> отклонён
+	# дальность (правило геометрии): не двигался -> дальний выстрел легален; двигался -> нет
 	var s3 := _fresh()
 	var h3 := _place(s3, 0, Vector2i(0, 4))
 	h3.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SNIPE]
-	var far := _slots()
-	far[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(6, 4))   # дальность 6
+	var far_off := Vector2i(6, 0)   # выстрел на 6 клеток по прямой
 	h3.moved_last_round = false
-	_check(not OrderValidator.sanitize(s3, far, Consts.Player.A)[0].is_empty(),
-		"снайпер: не двигался -> дальний выстрел разрешён")
+	_check(OrderValidator._target_legal(h3, Consts.Action.ATTACK, far_off),
+		"снайпер: не двигался -> дальний выстрел легален")
 	h3.moved_last_round = true
-	_check(OrderValidator.sanitize(s3, far, Consts.Player.A)[0].is_empty(),
-		"снайпер: двигался -> дальний выстрел отклонён")
+	_check(not OrderValidator._target_legal(h3, Consts.Action.ATTACK, far_off),
+		"снайпер: двигался -> дальний выстрел нелегален")
 
 
 func test_sniper_no_bonus_on_first_round() -> void:
@@ -1420,10 +1424,8 @@ func test_sniper_no_bonus_on_first_round() -> void:
 	oa[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 4))
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
 	_check(v.hp == 30 - Consts.HUNTER_ATK_DMG, "снайпер: 1-й раунд -> без бонуса урона [%d]" % v.hp)
-	var far := _slots()
-	far[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(6, 4))   # дальность 6 — только со «Снайпером»
-	_check(OrderValidator.sanitize(s, far, Consts.Player.A)[0].is_empty(),
-		"снайпер: 1-й раунд -> дальний выстрел отклонён")
+	_check(not OrderValidator._target_legal(h, Consts.Action.ATTACK, Vector2i(6, 0)),
+		"снайпер: 1-й раунд (moved_last_round) -> дальний выстрел нелегален")
 
 
 func test_cold_blood_mana_on_kill() -> void:
