@@ -14,8 +14,10 @@ signal drag_started(cell: Vector2i)              # зажали свой ток�
 signal drag_updated(cell: Vector2i)              # курсор во время перетаскивания над клеткой
 signal drag_ended()                              # отпустили — маршрут фиксируется
 
-const CELL := 76
+const DEFAULT_CELL := 76.0
 const PAD := 6
+
+var cell_size: float = DEFAULT_CELL   # клетка доски в пикселях; растёт/уменьшается под экран (Layout.recompute)
 
 const MOVE_DUR := 0.36
 const LUNGE_DUR := 0.32
@@ -66,8 +68,22 @@ const COL_ROUTE := Color(0.93, 0.96, 1.0, 0.5)   # светлая полупро
 
 func _ready() -> void:
 	_font = ThemeDB.fallback_font
-	custom_minimum_size = Vector2(CELL * Consts.BOARD_W, CELL * Consts.BOARD_H)
+	custom_minimum_size = Vector2(cell_size * Consts.BOARD_W, cell_size * Consts.BOARD_H)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+# Меняет размер клетки (Layout.recompute подбирает его под реальный экран) и подгоняет размер
+# контрола под новую доску. vis — экранные координаты токенов, закешированные под СТАРЫЙ
+# размер клетки — пересчитываем их заново, иначе токены останутся на местах старого масштаба.
+func set_cell_size(s: float) -> void:
+	if is_equal_approx(s, cell_size):
+		return
+	cell_size = s
+	custom_minimum_size = Vector2(cell_size * Consts.BOARD_W, cell_size * Consts.BOARD_H)
+	size = custom_minimum_size
+	if not snap.is_empty():
+		_reset_visuals()
+	queue_redraw()
 
 
 func setup(p_board: Board) -> void:
@@ -172,7 +188,7 @@ func _flip_cell(c: Vector2i) -> Vector2i:
 
 
 func _center(c: Vector2i) -> Vector2:   # центр ЭКРАННОЙ клетки
-	return Vector2(c.x * CELL + CELL * 0.5, c.y * CELL + CELL * 0.5)
+	return Vector2(c.x * cell_size + cell_size * 0.5, c.y * cell_size + cell_size * 0.5)
 
 
 func _scell(real: Vector2i) -> Vector2:  # пиксельный центр РЕАЛЬНОЙ клетки с учётом флипа
@@ -181,7 +197,7 @@ func _scell(real: Vector2i) -> Vector2:  # пиксельный центр РЕ�
 
 func _cell_rect(real: Vector2i) -> Rect2:
 	var c := _flip_cell(real)
-	return Rect2(c.x * CELL + PAD, c.y * CELL + PAD, CELL - PAD * 2, CELL - PAD * 2)
+	return Rect2(c.x * cell_size + PAD, c.y * cell_size + PAD, cell_size - PAD * 2, cell_size - PAD * 2)
 
 
 # ------------------------------------------------------------- анимации (возвращают Tween)
@@ -199,7 +215,7 @@ func anim_lunge(id: int, toward_cell: Vector2i, reach: float = LUNGE_MELEE) -> T
 	var dir := (_scell(toward_cell) - start)
 	if dir.length() > 0.001:
 		dir = dir.normalized()
-	var peak := start + dir * CELL * reach
+	var peak := start + dir * cell_size * reach
 	var tw := create_tween()
 	tw.tween_method(Callable(self, "_set_vis").bind(id), start, peak, LUNGE_DUR * 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tw.tween_method(Callable(self, "_set_vis").bind(id), peak, start, LUNGE_DUR * 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
@@ -222,7 +238,7 @@ func anim_floater(id: int, text: String, col: Color) -> Tween:
 	# (капкан + засада за один вход), поднимаем новую выше, чтобы не наложились
 	var stack := 0
 	for other in floaters:
-		if other.pos.distance_to(pos) < CELL * 0.9:
+		if other.pos.distance_to(pos) < cell_size * 0.9:
 			stack += 1
 	var f := {"uid": _floater_uid, "pos": pos - Vector2(0, stack * 24), "text": text, "color": col, "p": 0.0}
 	floaters.append(f)
@@ -315,7 +331,7 @@ func _end_drag() -> void:
 
 
 func _cell_at(pos: Vector2) -> Vector2i:
-	var screen := Vector2i(int(pos.x) / CELL, int(pos.y) / CELL)
+	var screen := Vector2i(int(pos.x / cell_size), int(pos.y / cell_size))
 	return _flip_cell(screen)   # экран → реальные (флип — сам себе обратный)
 
 
@@ -350,12 +366,12 @@ func _draw() -> void:
 	for sy in Consts.BOARD_H:
 		for sx in Consts.BOARD_W:
 			var real := _flip_cell(Vector2i(sx, sy))
-			var rect := Rect2(sx * CELL, sy * CELL, CELL, CELL)
+			var rect := Rect2(sx * cell_size, sy * cell_size, cell_size, cell_size)
 			draw_rect(rect, COL_OBSTACLE if board.is_obstacle(real) else COL_CELL)
 			draw_rect(rect, COL_GRID, false, 1.0)
 	for cp in board.control_points:
 		var ctr := _scell(cp)
-		var r := CELL * 0.5 - 4
+		var r := cell_size * 0.5 - 4
 		draw_polyline(PackedVector2Array([
 			ctr + Vector2(0, -r), ctr + Vector2(r, 0),
 			ctr + Vector2(0, r), ctr + Vector2(-r, 0), ctr + Vector2(0, -r),
@@ -382,20 +398,20 @@ func _draw() -> void:
 func _draw_floaters() -> void:
 	for f in floaters:
 		var p: float = f.p
-		var ctr: Vector2 = f.pos + Vector2(0, -CELL * 0.34 - p * CELL * 0.50)
+		var ctr: Vector2 = f.pos + Vector2(0, -cell_size * 0.34 - p * cell_size * 0.50)
 		var col: Color = f.color
 		col.a = 1.0 if p <= FLOAT_HOLD else clampf(1.0 - (p - FLOAT_HOLD) / (1.0 - FLOAT_HOLD), 0.0, 1.0)
-		var left := Vector2(ctr.x - CELL * 0.5, ctr.y)
+		var left := Vector2(ctr.x - cell_size * 0.5, ctr.y)
 		# тёмная подложка-обводка, чтобы цифра читалась на любом фоне
-		draw_string(_font, left + Vector2(1, 1), f.text, HORIZONTAL_ALIGNMENT_CENTER, CELL, 24,
+		draw_string(_font, left + Vector2(1, 1), f.text, HORIZONTAL_ALIGNMENT_CENTER, cell_size, 24,
 			Color(0, 0, 0, col.a * 0.75))
-		draw_string(_font, left, f.text, HORIZONTAL_ALIGNMENT_CENTER, CELL, 24, col)
+		draw_string(_font, left, f.text, HORIZONTAL_ALIGNMENT_CENTER, cell_size, 24, col)
 
 
 func _draw_hazard(cell: Vector2i, tex: Texture2D, owner: int) -> void:
 	var ctr := _scell(cell)
 	var col := _owner_color(owner)
-	var s := CELL * 0.6
+	var s := cell_size * 0.6
 	if tex != null:
 		draw_texture_rect(tex, Rect2(ctr - Vector2(s, s) * 0.5, Vector2(s, s)), false)
 	draw_arc(ctr, s * 0.5 + 2, 0, TAU, 24, Color(col.r, col.g, col.b, 0.75), 2.0)
@@ -406,19 +422,19 @@ func _draw_ghost(g: Dictionary) -> void:
 	_draw_icon(ctr, g.type, 0.45)
 	var owner_col := _owner_color(g.owner)
 	owner_col.a = 0.45
-	draw_arc(ctr, CELL * 0.44, 0, TAU, 32, owner_col, 2.5)
+	draw_arc(ctr, cell_size * 0.44, 0, TAU, 32, owner_col, 2.5)
 
 
 func _draw_grave(u: Dictionary) -> void:
 	var ctr := _scell(u.cell)
 	var owner_col := _owner_color(u.owner)
 	var tex := Icons.grave()
-	var s := CELL * 0.72
+	var s := cell_size * 0.72
 	if tex != null:
 		draw_texture_rect(tex, Rect2(ctr - Vector2(s, s) * 0.5, Vector2(s, s)), false, Color(1, 1, 1, 0.9))
 	else:
 		draw_string(_font, ctr + Vector2(-16, 6), "RIP", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.7, 0.7, 0.75))
-	draw_arc(ctr, CELL * 0.40, 0, TAU, 28, Color(owner_col.r, owner_col.g, owner_col.b, 0.6), 2.0)
+	draw_arc(ctr, cell_size * 0.40, 0, TAU, 28, Color(owner_col.r, owner_col.g, owner_col.b, 0.6), 2.0)
 	# сколько ходов ждать воскрешения — просто цифрой ровно по центру камня, на тёмной подложке
 	var t: int = u.get("dead_timer", 0)
 	if t > 0:
@@ -434,12 +450,12 @@ func _draw_unit(u: Dictionary) -> void:
 	_draw_icon(ctr, u.type, 1.0)
 	var fl: Color = tint.get(u.id, Color(1, 1, 1, 0))
 	if fl.a > 0.001:
-		draw_circle(ctr, CELL * 0.42, fl)
-	draw_arc(ctr, CELL * 0.44, 0, TAU, 32, owner_col, 3.0)
+		draw_circle(ctr, cell_size * 0.42, fl)
+	draw_arc(ctr, cell_size * 0.44, 0, TAU, 32, owner_col, 3.0)
 	if u.id == selected_unit_id:
-		draw_arc(ctr, CELL * 0.54, 0, TAU, 40, Color.WHITE, 4.0)   # выбранный герой — белым
+		draw_arc(ctr, cell_size * 0.54, 0, TAU, 40, Color.WHITE, 4.0)   # выбранный герой — белым
 	if u.get("shield", false):
-		draw_arc(ctr, CELL * 0.50, 0, TAU, 32, Color(0.5, 0.9, 1.0), 2.5)
+		draw_arc(ctr, cell_size * 0.50, 0, TAU, 32, Color(0.5, 0.9, 1.0), 2.5)
 	# HP слева-сверху, мана справа-сверху — на полупрозрачной тёмной подложке
 	_draw_stat(ctr, u.hp, true)
 	_draw_stat(ctr, u.mana, false)
@@ -450,8 +466,8 @@ func _draw_unit(u: Dictionary) -> void:
 func _draw_stat(ctr: Vector2, value: int, left: bool) -> void:
 	var w := 26.0
 	var h := 20.0
-	var x: float = (ctr.x - CELL * 0.5 + 3) if left else (ctr.x + CELL * 0.5 - 3 - w)
-	var y := ctr.y - CELL * 0.5 + 2
+	var x: float = (ctr.x - cell_size * 0.5 + 3) if left else (ctr.x + cell_size * 0.5 - 3 - w)
+	var y := ctr.y - cell_size * 0.5 + 2
 	# HP (слева) — светло-красная, мана (справа) — светло-синяя
 	var col := Color(1.0, 0.55, 0.55) if left else Color(0.55, 0.78, 1.0)
 	draw_rect(Rect2(x, y, w, h), Color(0, 0, 0, 0.55))
@@ -472,7 +488,7 @@ func _draw_debuffs(u: Dictionary, ctr: Vector2) -> void:
 	var gap := 2.0
 	var total := texes.size() * isz + (texes.size() - 1) * gap
 	var x := ctr.x - total * 0.5
-	var y := ctr.y + CELL * 0.5 - isz - 2
+	var y := ctr.y + cell_size * 0.5 - isz - 2
 	for tex in texes:
 		draw_rect(Rect2(x - 1, y - 1, isz + 2, isz + 2), Color(0, 0, 0, 0.6))
 		draw_texture_rect(tex, Rect2(x, y, isz, isz), false)
@@ -556,11 +572,11 @@ func _plural_turns(n: int) -> String:
 
 func _draw_icon(ctr: Vector2, hero_type: int, alpha: float) -> void:
 	var tex: Texture2D = Icons.hero(hero_type)
-	var s := CELL * 0.88
+	var s := cell_size * 0.88
 	if tex != null:
 		draw_texture_rect(tex, Rect2(ctr - Vector2(s, s) * 0.5, Vector2(s, s)), false, Color(1, 1, 1, alpha))
 	else:
-		draw_circle(ctr, CELL * 0.34, Color(0.5, 0.5, 0.5, alpha))
+		draw_circle(ctr, cell_size * 0.34, Color(0.5, 0.5, 0.5, alpha))
 
 
 # Маршрут хода: светлая полупрозрачная линия от origin через все клетки пути + точка на конце.
@@ -591,8 +607,8 @@ func _draw_markers() -> void:
 	for cell_key in by_cell:
 		var scr: Vector2i = _flip_cell(cell_key)
 		var list: Array = by_cell[cell_key]
-		var base_x: int = scr.x * CELL + 3
-		var base_y: int = scr.y * CELL + CELL - sz - 3
+		var base_x: int = int(scr.x * cell_size) + 3
+		var base_y: int = int(scr.y * cell_size + cell_size) - sz - 3
 		for i in list.size():
 			var m: Dictionary = list[i]
 			var tex: Texture2D = Icons.action(m.hero_type, m.action, m.get("skills", []))

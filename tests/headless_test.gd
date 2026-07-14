@@ -104,6 +104,8 @@ func _initialize() -> void:
 	test_loadout_sanitize()
 	test_team_allows_duplicate_heroes()
 	test_immobilize_blocks_movement_skills()
+	test_layout_recompute_matches_original_at_baseline()
+	test_layout_recompute_grows_cell_on_wider_screen()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -1542,10 +1544,10 @@ func test_grave_tooltip_shows_class() -> void:
 	bv.set_view(Consts.Player.A)    # без флипа: экранная клетка == реальной
 	bv.render(s.snapshot())
 	var cell := u.cell
-	var px := Vector2(cell.x * BoardView.CELL + BoardView.CELL * 0.5, cell.y * BoardView.CELL + BoardView.CELL * 0.5)
+	var px := Vector2(cell.x * bv.cell_size + bv.cell_size * 0.5, cell.y * bv.cell_size + bv.cell_size * 0.5)
 	_check(bv._get_tooltip(px) == "Могила: %s" % Consts.hero_name(u.hero_type),
 		"могила: тултип показывает класс [%s]" % bv._get_tooltip(px))
-	_check(bv._get_tooltip(Vector2(BoardView.CELL * 0.5, BoardView.CELL * 0.5)) == "",
+	_check(bv._get_tooltip(Vector2(bv.cell_size * 0.5, bv.cell_size * 0.5)) == "",
 		"могила: над клеткой без могилы тултипа нет")
 	bv.queue_free()
 
@@ -1819,3 +1821,25 @@ func test_team_allows_duplicate_heroes() -> void:
 	_check(round_trip[0].type == Consts.HeroType.HUNTER and round_trip[1].type == Consts.HeroType.HUNTER
 			and round_trip[2].type == Consts.HeroType.HUNTER,
 		"отряд по сети: три Охотника сохранены")
+
+
+func test_layout_recompute_matches_original_at_baseline() -> void:
+	# При исходном 540x1200 recompute() обязан воспроизвести старые фиксированные числа —
+	# иначе обычные (не EXPAND) экраны получат другую раскладку, чем раньше.
+	Layout.recompute(540.0, 1200.0)
+	_check(is_equal_approx(Layout.cell_size, 76.0), "layout: клетка на базовом экране = 76 [%f]" % Layout.cell_size)
+	_check(is_equal_approx(Layout.BOARD_PX, 532.0), "layout: BOARD_PX = 532 [%f]" % Layout.BOARD_PX)
+	_check(is_equal_approx(Layout.SCREEN_W, 540.0), "layout: SCREEN_W = 540 [%f]" % Layout.SCREEN_W)
+	_check(is_equal_approx(Layout.SCREEN_H, 1200.0), "layout: SCREEN_H = 1200 [%f]" % Layout.SCREEN_H)
+	_check(is_equal_approx(Layout.PANEL_H, 454.0), "layout: PANEL_H = 454 [%f]" % Layout.PANEL_H)
+
+
+func test_layout_recompute_grows_cell_on_wider_screen() -> void:
+	# На экране шире и выше базового клетка доски растёт (поле «растягивается»), а не остаётся
+	# приклеенной к исходным 76px — и лишняя высота отдаётся нижней панели (PANEL_H тоже растёт).
+	Layout.recompute(700.0, 2000.0)
+	_check(Layout.cell_size > 76.0, "layout: на широком экране клетка выросла [%f]" % Layout.cell_size)
+	_check(is_equal_approx(Layout.SCREEN_W, 700.0), "layout: SCREEN_W подстроился под ширину [%f]" % Layout.SCREEN_W)
+	_check(Layout.PANEL_H > 454.0, "layout: нижняя панель тоже выросла [%f]" % Layout.PANEL_H)
+	# восстановить базовое состояние для остальных тестов (Layout — статический синглтон)
+	Layout.recompute(540.0, 1200.0)

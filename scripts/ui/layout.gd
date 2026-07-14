@@ -1,43 +1,66 @@
 class_name Layout
 extends RefCounted
 
-## Единственный источник правды по раскладке портретного экрана.
-## Раньше эти числа были размазаны магическими литералами по main.gd и planning_panel.gd
-## (1200, 42, 44, 8), причём panel_height считался в двух местах независимо.
-##
-## SCREEN_* обязаны совпадать с display/window/size/* из project.godot — это проверяет
-## verify_project_settings() при старте (см. main.gd).
+## Единственный источник правды по раскладке портретного экрана. Раньше все размеры были
+## фиксированы под 540x1200 (см. git-историю); теперь клетка доски и всё, что от неё зависит,
+## пересчитываются под РЕАЛЬНЫЙ размер экрана вызовом recompute() — доска и нижняя панель
+## (в т.ч. кнопка «Готово») растягиваются, а не остаются приклеенными к фиксированной ширине.
+## Дергает recompute() main.gd при старте и на каждый resize/поворот экрана.
 
-const SCREEN_W := 540
-const SCREEN_H := 1200
-
-const TOP_MARGIN := 56                                   # верхний отступ экрана боя; справа в нём — кнопка настроек
-
-const BOARD_X := 4
-const BOARD_Y := TOP_MARGIN + 42                         # под верхней полосой очков
-const BOARD_PX := BoardView.CELL * Consts.BOARD_W        # ширина = высота доски (квадрат)
-const BOARD_BOTTOM := BOARD_Y + BoardView.CELL * Consts.BOARD_H
-
+# --- Фиксированные отступы (не зависят от размера экрана) ---
+const TOP_MARGIN := 56          # верхний отступ экрана боя; справа в нём — кнопка настроек
+const BOARD_X := 4              # левый/правый отступ доски и полос от края раскладки
+const BOARD_GAP := 42           # отступ от TOP_MARGIN до верха доски
 const SCORE_H := 30
-const SCORE_TOP_Y := TOP_MARGIN + 8                      # очки соперника — над доской
-const SCORE_BOTTOM_Y := BOARD_BOTTOM + 4                 # очки игрока — под доской
-const SCORE_PAD := 12                                    # отступ под очками игрока
-
-# Панель эффектов выделенного юнита — между очками и скиллами
-const EFFECT_Y := SCORE_BOTTOM_Y + SCORE_H + SCORE_PAD
+const SCORE_TOP_GAP := 8        # отступ полосы очков соперника от TOP_MARGIN
+const SCORE_BOTTOM_GAP := 4     # отступ полосы очков игрока от низа доски
+const SCORE_PAD := 12           # отступ под очками игрока
 const EFFECT_H := 56
-
+const EFFECT_GAP := 6           # отступ от полосы эффектов до нижней панели
 const PANEL_BOTTOM_MARGIN := 8
-const PANEL_TOP := EFFECT_Y + EFFECT_H + 6               # скиллы начинаются под полосой эффектов
-const PANEL_W := BOARD_PX
-const PANEL_H := SCREEN_H - PANEL_TOP - PANEL_BOTTOM_MARGIN
+
+const MIN_CELL := 50.0          # ниже не сжимаем клетку — экран должен быть совсем крохотным
+const MIN_PANEL_H := 454.0      # минимум высоты нижней панели (столько и было раньше при 540x1200) —
+                                 # резервируем её при подборе клетки, чтобы не выдавить панель доской
+
+# --- Динамические (пересчитываются в recompute() под реальный размер экрана) ---
+# Литералы ниже — те же значения, что дал бы recompute() при 540x1200 (исходная раскладка);
+# независимые литералы, а не выражения друг через друга — так порядок инициализации static var
+# ни на что не влияет. Актуализируются вызовом recompute() ещё до первой отрисовки (см. main.gd).
+static var cell_size: float = 76.0
+static var BOARD_PX: float = 532.0
+static var BOARD_Y: float = 98.0
+static var BOARD_BOTTOM: float = 630.0
+static var SCORE_TOP_Y: float = 64.0
+static var SCORE_BOTTOM_Y: float = 634.0
+static var EFFECT_Y: float = 676.0
+static var PANEL_TOP: float = 738.0
+static var PANEL_W: float = 532.0
+static var PANEL_H: float = 454.0
+static var SCREEN_W: float = 540.0
+static var SCREEN_H: float = 1200.0
 
 
-# Раскладка сверстана под фиксированный портретный вьюпорт. Если его поменяли в project.godot,
-# а константы забыли — предупредить, а не молча разъехаться.
-static func verify_project_settings() -> void:
-	var w: int = ProjectSettings.get_setting("display/window/size/viewport_width", SCREEN_W)
-	var h: int = ProjectSettings.get_setting("display/window/size/viewport_height", SCREEN_H)
-	if w != SCREEN_W or h != SCREEN_H:
-		push_warning("Layout: вьюпорт %dx%d не совпадает с константами %dx%d — раскладка разъедется"
-			% [w, h, SCREEN_W, SCREEN_H])
+# Подбирает клетку доски КАК МОЖНО БОЛЬШЕ, но так, чтобы вся раскладка (доска + обвязка)
+# целиком влезала и по ширине, и по высоте реального экрана (avail_w x avail_h) — большая
+# из двух кандидатных клеток (по ширине/по высоте) не берётся, чтобы не обрезать другую ось.
+# Лишнее место по НЕограничивающей оси остаётся — main.gd центрирует раскладку по ширине
+# и отдаёт нижней панели высоту (см. _apply_layout), поэтому пустых полос не возникает.
+static func recompute(avail_w: float, avail_h: float) -> void:
+	var cell_by_w := (avail_w - 2.0 * BOARD_X) / float(Consts.BOARD_W)
+	var fixed_v_chrome := TOP_MARGIN + BOARD_GAP + SCORE_H + SCORE_BOTTOM_GAP + SCORE_PAD \
+			+ EFFECT_H + EFFECT_GAP + PANEL_BOTTOM_MARGIN + MIN_PANEL_H
+	var cell_by_h := (avail_h - fixed_v_chrome) / float(Consts.BOARD_H)
+	cell_size = maxf(MIN_CELL, minf(cell_by_w, cell_by_h))
+
+	BOARD_PX = cell_size * Consts.BOARD_W
+	BOARD_Y = TOP_MARGIN + BOARD_GAP
+	BOARD_BOTTOM = BOARD_Y + cell_size * Consts.BOARD_H
+	SCORE_TOP_Y = TOP_MARGIN + SCORE_TOP_GAP
+	SCORE_BOTTOM_Y = BOARD_BOTTOM + SCORE_BOTTOM_GAP
+	EFFECT_Y = SCORE_BOTTOM_Y + SCORE_H + SCORE_PAD
+	PANEL_TOP = EFFECT_Y + EFFECT_H + EFFECT_GAP
+	PANEL_W = BOARD_PX
+	SCREEN_W = BOARD_PX + 2.0 * BOARD_X
+	SCREEN_H = maxf(avail_h, PANEL_TOP + MIN_PANEL_H + PANEL_BOTTOM_MARGIN)
+	PANEL_H = SCREEN_H - PANEL_TOP - PANEL_BOTTOM_MARGIN

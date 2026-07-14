@@ -22,17 +22,19 @@ const SLOT_SMALL := 28
 const SLOT_GAP := 6
 const SLOT_PAD := 4      # отступ иконки от края круглого слота (меньше отступ — крупнее иконка)
 const HEROICON := 34
-const PANEL_W := Layout.PANEL_W
-const PANEL_H := Layout.PANEL_H
 const SKILLS_Y := 4
 const SKILLS_H := 104
 const DESC_Y := 116
-# слоты действий и «Готово» — прижаты к низу экрана
-const DONE_Y := PANEL_H - 56
-const HEROICON_Y := DONE_Y - 8 - HEROICON
-const SLOTS_Y := HEROICON_Y - 4 - SLOT_BIG
-const ERR_Y := SLOTS_Y - 26
-const DESC_H := ERR_Y - DESC_Y - 8   # описание занимает всё место между скиллами и слотами
+
+# Зависят от Layout.PANEL_W/PANEL_H — растягивается вместе с доской под реальный экран
+# (Layout.recompute), поэтому не const: пересчитываются в _build_ui() при каждом begin().
+var PANEL_W: float
+var PANEL_H: float
+var DONE_Y: float    # «Готово» — прижато к низу экрана
+var HEROICON_Y: float
+var SLOTS_Y: float
+var ERR_Y: float
+var DESC_H: float    # описание занимает всё место между скиллами и слотами
 
 var state: MatchState
 var player: int
@@ -103,6 +105,16 @@ func _build_ui() -> void:
 	_slot_chips = []
 	_slot_heroicons = []
 	_opp_chips = []
+
+	# Панель растягивается вместе с доской (Layout.PANEL_W/PANEL_H пересчитаны под реальный
+	# экран) — перечитываем их заново при каждой сборке, а не берём фиксированными на старте.
+	PANEL_W = Layout.PANEL_W
+	PANEL_H = Layout.PANEL_H
+	DONE_Y = PANEL_H - 56
+	HEROICON_Y = DONE_Y - 8 - HEROICON
+	SLOTS_Y = HEROICON_Y - 4 - SLOT_BIG
+	ERR_Y = SLOTS_Y - 26
+	DESC_H = ERR_Y - DESC_Y - 8
 
 	# ряд скиллов — по центру, фиксированная позиция
 	_skills_row = HBoxContainer.new()
