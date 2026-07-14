@@ -169,10 +169,10 @@ static func _unit_candidates(work: MatchState, u: Unit, slot: int) -> Array:
 	# Базовая атака
 	for c in Targeting.candidates(work, u, Consts.Action.ATTACK, u.cell):
 		out.append(_targeted(u, Consts.Action.ATTACK, c))
-	# Способности (3 слота кита)
-	for i in Consts.SKILLS_PER_HERO:
+	# Способности (3 слота кита, либо 4 у бойца с бонусной способностью — Difficulty)
+	for i in u.skills.size():
 		var action := Consts.Action.ABILITY1 + i
-		var def := HeroDefs.for_action(u.hero_type, action, u.skills)
+		var def := HeroDefs.for_action(u.hero_type, action, u.skills, u.mana_discount)
 		if def.passive:
 			continue
 		if def.slot_gate.size() > 0 and not (slot in def.slot_gate):

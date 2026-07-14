@@ -268,7 +268,7 @@ func _show_menu() -> void:
 	b_ai.text = "Игра против ИИ"
 	b_ai.custom_minimum_size = Vector2(0, 52)
 	b_ai.add_theme_font_size_override("font_size", 20)
-	b_ai.pressed.connect(_start_local.bind(true))
+	b_ai.pressed.connect(_show_difficulty_dialog)
 	box.add_child(b_ai)
 
 	var b_online := Button.new()
@@ -286,6 +286,57 @@ func _show_menu() -> void:
 	box.add_child(b_coll)
 
 	_set_panel(box)
+
+
+# Окно выбора сложности перед боем с ИИ: слайдер 1..24 + «Бой»/«Отмена».
+func _show_difficulty_dialog() -> void:
+	var dlg := AcceptDialog.new()
+	dlg.title = "Игра против ИИ"
+	dlg.get_ok_button().visible = false   # свои кнопки «Бой»/«Отмена» ниже, вместо стандартного OK
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	box.custom_minimum_size = Vector2(360, 0)
+
+	var lbl := Label.new()
+	lbl.add_theme_font_size_override("font_size", 20)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.text = "Сложность: %d" % Difficulty.level
+	box.add_child(lbl)
+
+	var slider := HSlider.new()
+	slider.min_value = Difficulty.MIN_LEVEL
+	slider.max_value = Difficulty.MAX_LEVEL
+	slider.step = 1
+	slider.value = Difficulty.level
+	slider.custom_minimum_size = Vector2(0, 28)
+	slider.value_changed.connect(func(v: float): lbl.text = "Сложность: %d" % int(v))
+	box.add_child(slider)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var b_cancel := Button.new()
+	b_cancel.text = "Отмена"
+	b_cancel.custom_minimum_size = Vector2(140, 46)
+	b_cancel.pressed.connect(dlg.queue_free)
+	row.add_child(b_cancel)
+
+	var b_fight := Button.new()
+	b_fight.text = "Бой"
+	b_fight.custom_minimum_size = Vector2(140, 46)
+	b_fight.pressed.connect(func():
+		Difficulty.set_level(int(slider.value))
+		dlg.queue_free()
+		_start_local(true))
+	row.add_child(b_fight)
+	box.add_child(row)
+
+	dlg.add_child(box)
+	dlg.close_requested.connect(dlg.queue_free)
+	add_child(dlg)
+	dlg.popup_centered()
 
 
 func _show_collection() -> void:
@@ -319,6 +370,8 @@ func _start_local(vs_ai: bool = false) -> void:
 	# иначе — зеркало (оба за одним устройством играют одним составом).
 	var team_b := Loadout.random_team() if Loadout.is_random_battle() else team_a
 	state.setup(team_a, team_b, randi() % Maps.count())   # случайная карта из ротации
+	if vs_ai:
+		Difficulty.apply(state, Consts.Player.B)   # модификаторы сложности достаются только боту
 	board_view.setup(state.board)
 	_local_new_round()
 

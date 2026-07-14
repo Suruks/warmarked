@@ -102,6 +102,8 @@ static func candidates(state: MatchState, unit: Unit, action: int, origin: Vecto
 			return _ability_cells(state, unit, 1, origin, occ)
 		Consts.Action.ABILITY3:
 			return _ability_cells(state, unit, 2, origin, occ)
+		Consts.Action.ABILITY4:
+			return _ability_cells(state, unit, 3, origin, occ)
 	return [] as Array[Vector2i]
 
 

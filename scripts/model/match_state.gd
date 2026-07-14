@@ -200,7 +200,8 @@ func _try_respawn(u: Unit, events: Array) -> void:
 		return
 	u.alive = true
 	u.hp = u.max_hp
-	u.mana = Consts.START_MANA   # накопленный до смерти банк не переживает респ — это и есть цена смерти
+	u.mana = Consts.START_MANA + u.start_mana_bonus   # накопленный до смерти банк не переживает респ —
+	                                                    # это и есть цена смерти; постоянный бонус сложности переживает
 	u.cell = cell
 	u.dead_timer = 0
 	u.bleed_turns = 0            # эффекты с длительностью не переживают смерть

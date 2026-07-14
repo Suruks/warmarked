@@ -223,13 +223,18 @@ func _rebuild_skills() -> void:
 		return
 	var u := state.get_unit(_view_id)
 	var is_own := u.owner == player and u.alive
-	# Ход отдельной кнопкой не выводим — он активируется кликом по не ходившему юниту
+	# Ход отдельной кнопкой не выводим — он активируется кликом по не ходившему юниту.
+	# ABILITY4 — бонусный 4-й слот (модификатор сложности «против ИИ»), есть не у всех бойцов.
 	var actions := [Consts.Action.ATTACK, Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3]
+	if u.skills.size() > Consts.SKILLS_PER_HERO:
+		actions.append(Consts.Action.ABILITY4)
+	# 6 кнопок (4 умения + атака + «нет действия») чуть теснее в ряду, чем обычные 5, чтобы уместиться.
+	_skills_row.add_theme_constant_override("separation", 8 if actions.size() <= 4 else 4)
 	for act in actions:
-		var ad := HeroDefs.for_action(u.hero_type, act, u.skills)
+		var ad := HeroDefs.for_action(u.hero_type, act, u.skills, u.mana_discount)
 		var sb := SkillButton.new()
 		sb.setup(Icons.action(u.hero_type, act, u.skills), ad.mana, not (is_own and _skill_usable(u, act)))
-		sb.hovered.connect(_show_desc.bind(u.hero_type, act, u.skills))
+		sb.hovered.connect(_show_desc.bind(u.hero_type, act, u.skills, u.mana_discount))
 		sb.pressed.connect(_arm.bind(act))
 		_skills_row.add_child(sb)
 		_skill_btns.append(sb)
@@ -241,8 +246,8 @@ func _rebuild_skills() -> void:
 	_skills_row.add_child(nb)
 
 
-func _show_desc(hero_type: int, action: int, skills: Array = []) -> void:
-	var ad := HeroDefs.for_action(hero_type, action, skills)
+func _show_desc(hero_type: int, action: int, skills: Array = [], discounts: Dictionary = {}) -> void:
+	var ad := HeroDefs.for_action(hero_type, action, skills, discounts)
 	var lines: Array = ["[b]%s[/b]" % ad.name]
 	if ad.mana > 0:
 		lines.append("Мана: %d" % ad.mana)
@@ -630,7 +635,7 @@ func _skill_usable(u: Unit, action: int) -> bool:
 		return true
 	if action == Consts.Action.ATTACK:
 		return true
-	var ad := HeroDefs.for_action(u.hero_type, action, u.skills)
+	var ad := HeroDefs.for_action(u.hero_type, action, u.skills, u.mana_discount)
 	if ad.passive:
 		return false   # пассивку нельзя взвести — она работает сама
 	if ad.slot_gate.size() > 0 and not (_active in ad.slot_gate):
@@ -655,14 +660,14 @@ func _reserved_for(hero_id: int, exclude_slot: int) -> int:
 		if i == exclude_slot or slot_hero[i] != hero_id:
 			continue
 		var u := state.get_unit(hero_id)
-		r += HeroDefs.for_action(u.hero_type, slot_action[i], u.skills).mana
+		r += HeroDefs.for_action(u.hero_type, slot_action[i], u.skills, u.mana_discount).mana
 	return r
 
 
 func _needs_target(unit: Unit, action: int) -> bool:
 	if unit == null or action == Consts.Action.EMPTY:
 		return false
-	return HeroDefs.for_action(unit.hero_type, action, unit.skills).target != HeroDefs.Target.NONE
+	return HeroDefs.for_action(unit.hero_type, action, unit.skills, unit.mana_discount).target != HeroDefs.Target.NONE
 
 
 # Маршрут в клетку, недостижимую при обычном планировании (настройка «невозможные цели»).
@@ -790,7 +795,7 @@ func _on_done() -> void:
 		if hid < 0 or slot_action[i] == Consts.Action.EMPTY:
 			continue
 		var u := state.get_unit(hid)
-		var ad := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills)
+		var ad := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills, u.mana_discount)
 		var key := "%d:%d" % [hid, slot_action[i]]   # Ход тоже в контроле дублей
 		if seen.has(key):
 			_err_lbl.text = "%s: «%s» нельзя занять дважды за раунд" % [u.full_name(), ad.name]

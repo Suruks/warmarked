@@ -39,7 +39,7 @@ func _resolve_slot(state: MatchState, order: Order, player: int, slot: int, even
 			_do_move(state, unit, order.path, events)
 		Consts.Action.ATTACK:
 			_do_basic_attack(state, unit, order, events)
-		Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3:
+		Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3, Consts.Action.ABILITY4:
 			_do_ability(state, unit, order, slot, events)
 
 
@@ -146,8 +146,9 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 					"Щит %s поглотил капкан (урон и обездвиживание)" % unit.full_name())
 			else:
 				unit.immobilized = true   # замер СРАЗУ: гасит остаток движения в этом же раунде
-				_deal_damage(state, unit, Consts.TRAP_DMG, t.owner_player, events, "капкан",
-					state.get_unit(t.owner_id))
+				var trap_owner := state.get_unit(t.owner_id)
+				_deal_damage(state, unit, _dmg(trap_owner, Consts.Skill.TRAP, Consts.TRAP_DMG),
+					t.owner_player, events, "капкан", trap_owner)
 		if not unit.alive:
 			return
 	# Засады: срабатывают, когда ВРАЖЕСКИЙ юнит входит рядом с Кристалкайндом
@@ -160,7 +161,7 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 			state.ambushes.erase(a)
 			_push(events, state, Consts.EventType.AMBUSH_TRIGGER,
 				"Засада %s! %s входит рядом" % [owner.full_name(), unit.full_name()])
-			_deal_damage(state, unit, Consts.AMBUSH_DMG, owner.owner, events, "засада", owner)
+			_deal_damage(state, unit, _dmg(owner, Consts.Skill.AMBUSH, Consts.AMBUSH_DMG), owner.owner, events, "засада", owner)
 			if not unit.alive:
 				return
 
@@ -203,6 +204,12 @@ func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, e
 
 
 # ---------------------------------------------------------------- урон / смерть
+
+# Базовый урон каста + постоянный бонус сложности «против ИИ» на этом бойце для этого умения
+# (Difficulty.dmg_bonus; у игрока и в онлайне всегда пуст -> возвращает base как есть).
+func _dmg(unit: Unit, skill: int, base: int) -> int:
+	return base + int(unit.dmg_bonus.get(skill, 0))
+
 
 # src_unit — юнит-источник урона (нужен Осколкам для ответки); для средовых источников
 # (столкновение о стену) — null. retaliate=false у самой ответки, чтобы шипы не зациклились.
@@ -344,9 +351,13 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 # ---------------------------------------------------------------- способности
 
 func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events: Array) -> void:
-	var idx := order.action - Consts.Action.ABILITY1  # 0..2
+	var idx := order.action - Consts.Action.ABILITY1  # 0..3
+	if idx >= unit.skills.size():
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s: способность недоступна" % unit.full_name())
+		return
 	var skill: int = unit.skills[idx]
-	var def := HeroDefs.skill_def(skill)
+	var def := HeroDefs.skill_def(skill, int(unit.mana_discount.get(skill, 0)))
 	if def.passive:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s: %s — пассивка, её нельзя активировать" % [unit.full_name(), def.name])
@@ -448,7 +459,7 @@ func _sk_snipe(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> vo
 	if v == null:
 		_push(events, state, Consts.EventType.FIZZLE, "Снайп в пустоту (%d,%d)" % [et.x, et.y])
 		return
-	_deal_damage(state, v, Consts.SNIPE_DMG, unit.owner, events, "снайп", unit)
+	_deal_damage(state, v, _dmg(unit, Consts.Skill.SNIPE, Consts.SNIPE_DMG), unit.owner, events, "снайп", unit)
 
 
 # Дробь — квадрат 2x2 по диагонали (диагональ + две ортогональные к стрелку)
@@ -463,7 +474,7 @@ func _sk_shotgun(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> 
 		var v := state.unit_at(c)
 		if v == null:
 			continue
-		_deal_damage(state, v, Consts.SHOTGUN_DMG, unit.owner, events, "дробь", unit)
+		_deal_damage(state, v, _dmg(unit, Consts.Skill.SHOTGUN, Consts.SHOTGUN_DMG), unit.owner, events, "дробь", unit)
 		if v.alive:
 			_knockback(state, v, _dir_sign(v.cell - unit.cell), unit.owner, events)
 
@@ -477,7 +488,7 @@ func _sk_precise(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> 
 	if v == null:
 		_push(events, state, Consts.EventType.FIZZLE, "Меткий выстрел в пустоту (%d,%d)" % [et.x, et.y])
 		return
-	_deal_damage(state, v, Consts.PRECISE_DMG, unit.owner, events, "меткий выстрел", unit)
+	_deal_damage(state, v, _dmg(unit, Consts.Skill.PRECISE, Consts.PRECISE_DMG), unit.owner, events, "меткий выстрел", unit)
 
 
 # Охота началась — выстрел по прямой линии: метит ПЕРВОГО врага на луче до цели на
@@ -519,7 +530,7 @@ func _sk_deathcross(state: MatchState, unit: Unit, events: Array) -> void:
 		var v := _first_unit_on_ray(state, unit.cell, d)
 		if v != null and v.owner != unit.owner:
 			hit = true
-			_deal_damage(state, v, Consts.DEATHCROSS_DMG, unit.owner, events, "крест смерти", unit)
+			_deal_damage(state, v, _dmg(unit, Consts.Skill.DEATHCROSS, Consts.DEATHCROSS_DMG), unit.owner, events, "крест смерти", unit)
 	if not hit:
 		_push(events, state, Consts.EventType.FIZZLE, "Крест смерти: на линиях нет врагов")
 
@@ -542,7 +553,7 @@ func _sk_minefield(state: MatchState, unit: Unit, order: Order, et: Vector2i, ev
 		state.traps.append({
 			"cell": c, "owner_player": unit.owner, "owner_id": unit.id,
 			"expire_round": state.round_num + Consts.PERSIST_ROUNDS,
-			"mine": true, "dmg": Consts.MINEFIELD_DMG,
+			"mine": true, "dmg": _dmg(unit, Consts.Skill.MINEFIELD, Consts.MINEFIELD_DMG),
 		})
 		placed += 1
 		_push(events, state, Consts.EventType.TRAP_PLACED, "Мина на (%d,%d)" % [c.x, c.y])
@@ -571,7 +582,7 @@ func _sk_knockdown(state: MatchState, unit: Unit, et: Vector2i, events: Array) -
 		_push(events, state, Consts.EventType.FIZZLE, "Сбить с ног: на линии к (%d,%d) никого" % [et.x, et.y])
 		return
 	var dir := _dir_sign(v.cell - unit.cell)   # от Охотника к цели
-	_deal_damage(state, v, Consts.KNOCKDOWN_DMG, unit.owner, events, "сбить с ног", unit)
+	_deal_damage(state, v, _dmg(unit, Consts.Skill.KNOCKDOWN, Consts.KNOCKDOWN_DMG), unit.owner, events, "сбить с ног", unit)
 	if v.alive:
 		_shove(state, v, dir, Consts.KNOCKDOWN_PUSH, unit.owner, events)
 
@@ -632,16 +643,16 @@ func _sk_flash(state: MatchState, unit: Unit, events: Array) -> void:
 	for d in Consts.DIRS8:
 		var v := state.unit_at(unit.cell + d)
 		if v != null:
-			_deal_damage(state, v, Consts.FLASH_DMG, unit.owner, events, "вспышка", unit)
+			_deal_damage(state, v, _dmg(unit, Consts.Skill.FLASH, Consts.FLASH_DMG), unit.owner, events, "вспышка", unit)
 
 
 # Искра / Молния — прямой удар по одиночной клетке на дальности 1..range
 func _sk_spark(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
-	_bolt(state, unit, et, events, Consts.SPARK_RANGE, Consts.SPARK_DMG, "Искра", "искра")
+	_bolt(state, unit, et, events, Consts.SPARK_RANGE, _dmg(unit, Consts.Skill.SPARK, Consts.SPARK_DMG), "Искра", "искра")
 
 
 func _sk_lightning(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
-	_bolt(state, unit, et, events, Consts.LIGHTNING_RANGE, Consts.LIGHTNING_DMG, "Молния", "молния")
+	_bolt(state, unit, et, events, Consts.LIGHTNING_RANGE, _dmg(unit, Consts.Skill.LIGHTNING, Consts.LIGHTNING_DMG), "Молния", "молния")
 
 
 func _bolt(state: MatchState, unit: Unit, et: Vector2i, events: Array, rng: int, dmg: int, name: String, label: String) -> void:
@@ -681,7 +692,7 @@ func _sk_manasteal(state: MatchState, unit: Unit, et: Vector2i, events: Array) -
 	unit.mana += stolen
 	_push(events, state, Consts.EventType.MANA,
 		"%s крадёт %d маны у %s" % [unit.full_name(), stolen, v.full_name()])
-	_deal_damage(state, v, Consts.MANASTEAL_DMG, unit.owner, events, "кража маны", unit)
+	_deal_damage(state, v, _dmg(unit, Consts.Skill.MANASTEAL, Consts.MANASTEAL_DMG), unit.owner, events, "кража маны", unit)
 
 
 # Оковы — враг в радиусе SHACKLES_RANGE теряет базовую атаку на SHACKLES_TURNS ходов
@@ -835,7 +846,7 @@ func _sk_jump(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 	_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
 		"%s перепрыгивает на (%d,%d)" % [unit.full_name(), land.x, land.y])
 	if jumped.owner != unit.owner and jumped.alive:
-		_deal_damage(state, jumped, Consts.JUMP_DMG, unit.owner, events, "прыжок", unit)
+		_deal_damage(state, jumped, _dmg(unit, Consts.Skill.JUMP, Consts.JUMP_DMG), unit.owner, events, "прыжок", unit)
 
 
 func _sk_ambush(state: MatchState, unit: Unit, events: Array) -> void:
@@ -860,7 +871,7 @@ func _sk_dash(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 			break
 		var v := state.unit_at(c)
 		if v != null and v.id != unit.id:
-			_deal_damage(state, v, Consts.DASH_DMG, unit.owner, events, "рывок", unit)
+			_deal_damage(state, v, _dmg(unit, Consts.Skill.DASH, Consts.DASH_DMG), unit.owner, events, "рывок", unit)
 		else:
 			land = c
 	if land != unit.cell:
@@ -879,7 +890,7 @@ func _sk_onslaught(state: MatchState, unit: Unit, et: Vector2i, events: Array) -
 		_push(events, state, Consts.EventType.FIZZLE, "Натиск в пустоту (%d,%d)" % [et.x, et.y])
 		return
 	var dir := _dir_sign(et - unit.cell)
-	_deal_damage(state, victim, Consts.ONSLAUGHT_DMG, unit.owner, events, "натиск", unit)
+	_deal_damage(state, victim, _dmg(unit, Consts.Skill.ONSLAUGHT, Consts.ONSLAUGHT_DMG), unit.owner, events, "натиск", unit)
 	if victim.alive:
 		_knockback(state, victim, dir, unit.owner, events)
 	if state.unit_at(et) == null and state.board.is_passable(et):
@@ -895,7 +906,7 @@ func _sk_spikes(state: MatchState, unit: Unit, events: Array) -> void:
 		if v == null:
 			continue
 		hit = true
-		_deal_damage(state, v, Consts.SPIKES_DMG, unit.owner, events, "острые шипы", unit)
+		_deal_damage(state, v, _dmg(unit, Consts.Skill.SPIKES, Consts.SPIKES_DMG), unit.owner, events, "острые шипы", unit)
 	if not hit:
 		_push(events, state, Consts.EventType.FIZZLE, "Острые шипы: по диагоналям рядом пусто")
 

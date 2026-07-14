@@ -112,7 +112,16 @@ static func sorted_by_mana(skills: Array) -> Array:
 
 # Единственный каталог: описание по id скилла. Всё остальное (резолвер, таргетинг,
 # валидатор, иконки) диспетчеризуется по тому же id.
-static func skill_def(skill: int) -> AbilityDef:
+# discount — скидка к стоимости (модификатор сложности «против ИИ», Difficulty.mana_discount
+# конкретного бойца), не дешевле 0. Ноль по умолчанию — все обычные вызовы её не знают.
+static func skill_def(skill: int, discount: int = 0) -> AbilityDef:
+	var def := _skill_def_raw(skill)
+	if discount > 0:
+		def.mana = maxi(0, def.mana - discount)
+	return def
+
+
+static func _skill_def_raw(skill: int) -> AbilityDef:
 	match skill:
 		Consts.Skill.TRAP:
 			return AbilityDef.new("Капкан", Consts.TRAP_MANA, Target.CELL,
@@ -256,31 +265,36 @@ static func skill_def(skill: int) -> AbilityDef:
 	return AbilityDef.new("?", 0, Target.NONE, "")
 
 
-# Скилл, стоящий в слоте idx (0..2). skills — кит юнита; пустой -> кит по умолчанию.
+# Скилл, стоящий в слоте idx (0..2, либо 0..3 у бойца с бонусной 4-й способностью).
+# skills — кит юнита; короче SKILLS_PER_HERO или idx вне размера -> кит по умолчанию/невалидно.
 static func skill_at(hero_type: int, idx: int, skills: Array = []) -> int:
-	var s: Array = skills if skills.size() == Consts.SKILLS_PER_HERO else default_skills(hero_type)
+	var s: Array = skills if skills.size() >= Consts.SKILLS_PER_HERO else default_skills(hero_type)
+	if idx < 0 or idx >= s.size():
+		return -1
 	return s[idx]
 
 
-# Скилл, стоящий за Action-кодом ABILITY1..3; для прочих действий -1.
+# Скилл, стоящий за Action-кодом ABILITY1..4; для прочих действий -1.
 static func skill_of_action(hero_type: int, action: int, skills: Array = []) -> int:
-	if action < Consts.Action.ABILITY1 or action > Consts.Action.ABILITY3:
+	if action < Consts.Action.ABILITY1 or action > Consts.Action.ABILITY4:
 		return -1
 	return skill_at(hero_type, action - Consts.Action.ABILITY1, skills)
 
 
-# Возвращает описание способности по индексу (0..2 = ABILITY1..3)
-static func ability(hero_type: int, idx: int, skills: Array = []) -> AbilityDef:
-	return skill_def(skill_at(hero_type, idx, skills))
+# Возвращает описание способности по индексу (0..2 = ABILITY1..3, 3 = бонусный ABILITY4).
+# discounts — Unit.mana_discount (skill_id -> скидка); {} для обычных (не бойца бота) запросов.
+static func ability(hero_type: int, idx: int, skills: Array = [], discounts: Dictionary = {}) -> AbilityDef:
+	var skill := skill_at(hero_type, idx, skills)
+	return skill_def(skill, int(discounts.get(skill, 0)))
 
 
 # Возвращает описание действия по Action-коду (базовая атака или способность)
-static func for_action(hero_type: int, action: int, skills: Array = []) -> AbilityDef:
+static func for_action(hero_type: int, action: int, skills: Array = [], discounts: Dictionary = {}) -> AbilityDef:
 	match action:
 		Consts.Action.ATTACK:
 			return basic_attack(hero_type)
-		Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3:
-			return ability(hero_type, action - Consts.Action.ABILITY1, skills)
+		Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3, Consts.Action.ABILITY4:
+			return ability(hero_type, action - Consts.Action.ABILITY1, skills, discounts)
 		Consts.Action.MOVE:
 			return AbilityDef.new("Ход", 0, Target.MOVE_PATH, "движение до %d клеток" % Consts.MOVE_RANGE)
 	return AbilityDef.new("—", 0, Target.NONE, "пустой слот")

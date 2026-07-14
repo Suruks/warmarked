@@ -51,13 +51,13 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 		seen[mkey] = true
 		return true
 	if not (o.action in [Consts.Action.ATTACK, Consts.Action.ABILITY1,
-			Consts.Action.ABILITY2, Consts.Action.ABILITY3]):
+			Consts.Action.ABILITY2, Consts.Action.ABILITY3, Consts.Action.ABILITY4]):
 		return false
 
 	var key := "%d:%d" % [o.hero_id, o.action]
 	if seen.has(key):
 		return false
-	var def := HeroDefs.for_action(u.hero_type, o.action, u.skills)
+	var def := HeroDefs.for_action(u.hero_type, o.action, u.skills, u.mana_discount)
 	if def.passive:
 		return false   # пассивку нельзя активировать
 	if def.slot_gate.size() > 0 and not (slot in def.slot_gate):

@@ -111,6 +111,6 @@ static func action(hero_type: int, act: int, skills: Array = []) -> Texture2D:
 			Consts.HeroType.FAIRY: return tex_opt(DIR + "wisp.png")
 			Consts.HeroType.CRYSTAL: return tex_opt(DIR + "claws.png")
 		return tex_opt(DIR + "base_attack.png")
-	if act >= Consts.Action.ABILITY1 and act <= Consts.Action.ABILITY3:
+	if act >= Consts.Action.ABILITY1 and act <= Consts.Action.ABILITY4:
 		return for_skill(HeroDefs.skill_of_action(hero_type, act, skills))
 	return null
