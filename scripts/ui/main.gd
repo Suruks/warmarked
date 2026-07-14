@@ -150,9 +150,9 @@ func _build_layout() -> void:
 
 
 func _connect_net() -> void:
-	Net.connected_ok.connect(func(): _status("Соединение установлено. Поиск соперника…"))
-	Net.connect_failed.connect(func(): _status("Не удалось подключиться к серверу."))
-	Net.server_gone.connect(func(): _status("Сервер недоступен."))
+	Net.connected_ok.connect(func(): _status("Соединение установлено. Поиск соперника…", true))
+	Net.connect_failed.connect(func(): _status("Не удалось подключиться к серверу.", true))
+	Net.server_gone.connect(func(): _status("Сервер недоступен.", true))
 	Net.matched.connect(_on_matched)
 	Net.round_revealed.connect(_on_round_revealed)
 	Net.opponent_progress.connect(_on_opponent_progress)
@@ -166,7 +166,7 @@ func _on_version_mismatch(server_version: int, client_version: int) -> void:
 		push_error("[autoclient] версия %d != сервер %d" % [client_version, server_version])
 		get_tree().quit(1)
 		return
-	_status("Версия игры не совпадает с сервером.\nСервер: v%d, у вас: v%d.\nОбновите страницу (Ctrl+Shift+R) или клиент." % [server_version, client_version])
+	_status("Версия игры не совпадает с сервером.\nСервер: v%d, у вас: v%d.\nОбновите страницу (Ctrl+Shift+R) или клиент." % [server_version, client_version], true)
 
 
 func _on_opponent_progress(filled: Array) -> void:
@@ -246,8 +246,12 @@ func _on_options_pressed() -> void:
 	dlg.popup_centered()
 
 
-func _status(text: String) -> void:
+# show_cancel — показать кнопку «Отмена» под текстом (поиск соперника/ошибки до начала матча):
+# обрывает соединение и возвращает в меню. Во время самого матча (ожидание хода соперника)
+# кнопки нет — там для выхода уже есть «Сдаться» в настройках.
+func _status(text: String, show_cancel: bool = false) -> void:
 	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	var l := Label.new()
 	l.add_theme_font_size_override("font_size", 22)
@@ -255,6 +259,14 @@ func _status(text: String) -> void:
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(l)
+	if show_cancel:
+		var btn := Button.new()
+		btn.text = "Отмена"
+		btn.custom_minimum_size = Vector2(160, 46)
+		btn.pressed.connect(func():
+			Net.disconnect_net()
+			_show_menu())
+		box.add_child(btn)
 	_set_panel(box)
 
 
@@ -494,7 +506,7 @@ func _start_online(host: String) -> void:
 	_menu_art.visible = false
 	if host == "":
 		host = DEFAULT_HOST
-	_status("Подключение к %s…" % host)
+	_status("Подключение к %s…" % host, true)
 	Net.start_client(host)
 
 
