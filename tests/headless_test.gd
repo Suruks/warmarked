@@ -75,6 +75,7 @@ func _initialize() -> void:
 	test_teleport_blocked_when_occupied()
 	test_revive_raises_fallen_ally()
 	test_sniper_boosts_basic_attack_when_still()
+	test_sniper_no_bonus_on_first_round()
 	test_cold_blood_mana_on_kill()
 	test_blessing_heals_allies_in_radius()
 	test_lightness_move_range_3()
@@ -1343,6 +1344,23 @@ func test_sniper_boosts_basic_attack_when_still() -> void:
 	h3.moved_last_round = true
 	_check(OrderValidator.sanitize(s3, far, Consts.Player.A)[0].is_empty(),
 		"снайпер: двигался -> дальний выстрел отклонён")
+
+
+func test_sniper_no_bonus_on_first_round() -> void:
+	# В 1-м раунде матча предыдущего раунда не было — «Снайпер» не должен давать бонус даже
+	# на свежесозданном юните, который ещё физически никуда не ходил (moved_last_round=true по умолчанию).
+	var s := _fresh()
+	var h := _place(s, 0, Vector2i(0, 4))
+	h.skills = [Consts.Skill.SNIPER, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	var v := _place(s, 3, Vector2i(3, 4), 30)   # враг на дальности 3 (в обычном радиусе атаки)
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 4))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(v.hp == 30 - Consts.HUNTER_ATK_DMG, "снайпер: 1-й раунд -> без бонуса урона [%d]" % v.hp)
+	var far := _slots()
+	far[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(6, 4))   # дальность 6 — только со «Снайпером»
+	_check(OrderValidator.sanitize(s, far, Consts.Player.A)[0].is_empty(),
+		"снайпер: 1-й раунд -> дальний выстрел отклонён")
 
 
 func test_cold_blood_mana_on_kill() -> void:
