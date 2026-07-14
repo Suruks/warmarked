@@ -112,12 +112,16 @@ static func sorted_by_mana(skills: Array) -> Array:
 
 # Единственный каталог: описание по id скилла. Всё остальное (резолвер, таргетинг,
 # валидатор, иконки) диспетчеризуется по тому же id.
-# discount — скидка к стоимости (модификатор сложности «против ИИ», Difficulty.mana_discount
-# конкретного бойца), не дешевле 0. Ноль по умолчанию — все обычные вызовы её не знают.
-static func skill_def(skill: int, discount: int = 0) -> AbilityDef:
+# discount — скидка к стоимости, dmg_extra — надбавка к урону (модификаторы сложности «против
+# ИИ», Difficulty.mana_discount/dmg_bonus конкретного бойца). Ноль по умолчанию — обычные
+# вызовы их не знают. Урон в desc — статический текст по константе, поэтому dmg_extra не
+# переписывает число в строке, а дописывает бонус отдельной припиской (иначе она бы лгала).
+static func skill_def(skill: int, discount: int = 0, dmg_extra: int = 0) -> AbilityDef:
 	var def := _skill_def_raw(skill)
 	if discount > 0:
 		def.mana = maxi(0, def.mana - discount)
+	if dmg_extra > 0:
+		def.desc += " [color=green](+%d урона от сложности)[/color]" % dmg_extra
 	return def
 
 
@@ -282,19 +286,20 @@ static func skill_of_action(hero_type: int, action: int, skills: Array = []) -> 
 
 
 # Возвращает описание способности по индексу (0..2 = ABILITY1..3, 3 = бонусный ABILITY4).
-# discounts — Unit.mana_discount (skill_id -> скидка); {} для обычных (не бойца бота) запросов.
-static func ability(hero_type: int, idx: int, skills: Array = [], discounts: Dictionary = {}) -> AbilityDef:
+# discounts — Unit.mana_discount, dmg_bonuses — Unit.dmg_bonus (skill_id -> число); {} для
+# обычных (не бойца бота) запросов.
+static func ability(hero_type: int, idx: int, skills: Array = [], discounts: Dictionary = {}, dmg_bonuses: Dictionary = {}) -> AbilityDef:
 	var skill := skill_at(hero_type, idx, skills)
-	return skill_def(skill, int(discounts.get(skill, 0)))
+	return skill_def(skill, int(discounts.get(skill, 0)), int(dmg_bonuses.get(skill, 0)))
 
 
 # Возвращает описание действия по Action-коду (базовая атака или способность)
-static func for_action(hero_type: int, action: int, skills: Array = [], discounts: Dictionary = {}) -> AbilityDef:
+static func for_action(hero_type: int, action: int, skills: Array = [], discounts: Dictionary = {}, dmg_bonuses: Dictionary = {}) -> AbilityDef:
 	match action:
 		Consts.Action.ATTACK:
 			return basic_attack(hero_type)
 		Consts.Action.ABILITY1, Consts.Action.ABILITY2, Consts.Action.ABILITY3, Consts.Action.ABILITY4:
-			return ability(hero_type, action - Consts.Action.ABILITY1, skills, discounts)
+			return ability(hero_type, action - Consts.Action.ABILITY1, skills, discounts, dmg_bonuses)
 		Consts.Action.MOVE:
 			return AbilityDef.new("Ход", 0, Target.MOVE_PATH, "движение до %d клеток" % Consts.MOVE_RANGE)
 	return AbilityDef.new("—", 0, Target.NONE, "пустой слот")

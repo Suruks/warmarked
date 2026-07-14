@@ -231,10 +231,10 @@ func _rebuild_skills() -> void:
 	# 6 кнопок (4 умения + атака + «нет действия») чуть теснее в ряду, чем обычные 5, чтобы уместиться.
 	_skills_row.add_theme_constant_override("separation", 8 if actions.size() <= 4 else 4)
 	for act in actions:
-		var ad := HeroDefs.for_action(u.hero_type, act, u.skills, u.mana_discount)
+		var ad := HeroDefs.for_action(u.hero_type, act, u.skills, u.mana_discount, u.dmg_bonus)
 		var sb := SkillButton.new()
 		sb.setup(Icons.action(u.hero_type, act, u.skills), ad.mana, not (is_own and _skill_usable(u, act)))
-		sb.hovered.connect(_show_desc.bind(u.hero_type, act, u.skills, u.mana_discount))
+		sb.hovered.connect(_show_desc.bind(u.hero_type, act, u.skills, u.mana_discount, u.dmg_bonus))
 		sb.pressed.connect(_arm.bind(act))
 		_skills_row.add_child(sb)
 		_skill_btns.append(sb)
@@ -246,8 +246,8 @@ func _rebuild_skills() -> void:
 	_skills_row.add_child(nb)
 
 
-func _show_desc(hero_type: int, action: int, skills: Array = [], discounts: Dictionary = {}) -> void:
-	var ad := HeroDefs.for_action(hero_type, action, skills, discounts)
+func _show_desc(hero_type: int, action: int, skills: Array = [], discounts: Dictionary = {}, dmg_bonuses: Dictionary = {}) -> void:
+	var ad := HeroDefs.for_action(hero_type, action, skills, discounts, dmg_bonuses)
 	var lines: Array = ["[b]%s[/b]" % ad.name]
 	if ad.mana > 0:
 		lines.append("Мана: %d" % ad.mana)
@@ -300,7 +300,7 @@ func _arm(action: int) -> void:
 	var u := state.get_unit(_view_id)
 	if u.owner != player or not u.alive or not _skill_usable(u, action):
 		return
-	_show_desc(u.hero_type, action, u.skills)
+	_show_desc(u.hero_type, action, u.skills, u.mana_discount, u.dmg_bonus)
 	if _needs_target(u, action):
 		_pending_hero = _view_id
 		_pending_action = action
