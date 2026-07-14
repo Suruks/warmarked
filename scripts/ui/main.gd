@@ -366,9 +366,11 @@ func _start_local(vs_ai: bool = false) -> void:
 	_menu_art.visible = false
 	state = MatchState.new()
 	var team_a := Loadout.get_team()
-	# В «случайном бою» соперник (бот/2-й игрок) получает свой независимый случайный отряд;
-	# иначе — зеркало (оба за одним устройством играют одним составом).
-	var team_b := Loadout.random_team() if Loadout.is_random_battle() else team_a
+	# Против ИИ бот всегда получает свой независимый случайный отряд — иначе он играл бы
+	# зеркалом кита игрока, что не тот противник, каким должен быть бот. В hotseat двух людей
+	# соперник (2-й игрок) получает случайный отряд только в «случайном бою», иначе — зеркало
+	# (оба за одним устройством играют одним составом).
+	var team_b := Loadout.random_team() if (vs_ai or Loadout.is_random_battle()) else team_a
 	state.setup(team_a, team_b, randi() % Maps.count())   # случайная карта из ротации
 	if vs_ai:
 		Difficulty.apply(state, Consts.Player.B)   # модификаторы сложности достаются только боту
