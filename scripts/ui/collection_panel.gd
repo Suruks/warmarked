@@ -182,7 +182,7 @@ func _build_source() -> void:
 	add_child(scroll)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 6)
+	col.add_theme_constant_override("separation", 16)   # между РАЗНЫМИ героями — крупнее, чем внутри секции
 	scroll.add_child(col)
 
 	for h in Loadout.HEROES:
@@ -191,9 +191,15 @@ func _build_source() -> void:
 
 
 func _add_source_section(col: VBoxContainer, title: String, icon_tex: Texture2D, skills: Array) -> void:
+	# Шапка + скиллы одного героя — в своём VBox с маленьким отступом, чтобы межгеройский
+	# отступ col (см. выше) визуально отделял героев друг от друга, а не сливался с ним.
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 6)
+	col.add_child(section)
+
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 6)
-	col.add_child(head)
+	section.add_child(head)
 	if icon_tex != null:
 		var icon := TextureRect.new()
 		icon.texture = icon_tex
@@ -211,7 +217,7 @@ func _add_source_section(col: VBoxContainer, title: String, icon_tex: Texture2D,
 	flow.alignment = FlowContainer.ALIGNMENT_CENTER   # иначе в каждой строке пустое место копится справа
 	flow.add_theme_constant_override("h_separation", 5)
 	flow.add_theme_constant_override("v_separation", 5)
-	col.add_child(flow)
+	section.add_child(flow)
 	for sk in HeroDefs.sorted_by_mana(skills):
 		var cell := Cell.new()
 		cell.setup(self, "source", sk, HeroDefs.hero_of_skill(sk), -1, SZ_SOURCE)

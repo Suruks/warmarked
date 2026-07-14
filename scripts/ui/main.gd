@@ -74,13 +74,21 @@ func _arg_value(args: Array, keys: Array, fallback: String) -> String:
 
 # На портретном экране (выше, чем шире — телефон/планшет вертикально) растягиваем канвас без
 # чёрных полос по бокам: EXPAND сам расширяет сверх базовых 540x1200 ту ось (обычно высоту),
-# которой не хватает, чтобы покрыть экран целиком. На ландшафте (ПК и т.п.) оставляем как есть:
-# полосы там при несовпадающих пропорциях ожидаемы, трогать не просили.
+# которой не хватает, чтобы покрыть экран целиком. На ландшафте (ПК и вообще где угодно шире,
+# чем выше) полосы по бокам ожидаемы и неизбежны — но область самой игры держим фиксированной
+# пропорции 1:2 (а не 540:1200 ≈ 0.45:1, как в портрете), а не просто «оставляем как есть»:
+# content_scale_size — это ЕДИНСТВЕННЫЙ параметр, влияющий на пропорцию при KEEP, база проекта
+# (540x1200) тут ни при чём, поэтому меняем её только для книжной/альбомной ветки.
 func _adapt_stretch_for_orientation() -> void:
 	var sz := DisplayServer.window_get_size()
 	var portrait := sz.y > sz.x
-	var target := Window.CONTENT_SCALE_ASPECT_EXPAND if portrait else Window.CONTENT_SCALE_ASPECT_KEEP
-	get_window().content_scale_aspect = target
+	var win := get_window()
+	if portrait:
+		win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+		win.content_scale_size = Vector2i(540, 1200)
+	else:
+		win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+		win.content_scale_size = Vector2i(600, 1200)   # 1:2
 
 
 # Раскладку не привязываем к сигналам resize/размера: момент, когда смена content_scale_aspect
@@ -103,21 +111,12 @@ func _process(_delta: float) -> void:
 func _build_layout() -> void:
 	# Фон матча и коллекции — на весь РЕАЛЬНЫЙ экран (не только раскладку), позади всего
 	# остального (первым в дереве, вне _content) — иначе по бокам от раскладки было бы пусто.
-	# Высота — якорями (anchor_top=0/anchor_bottom=1, offset 0/0), т.е. ВСЕГДА равна реальной
-	# высоте окна силами движка каждый кадр, без всякой задержки на наш опрос вьюпорта (тем и
-	# отличается от прежней версии на "size = avail_h из get_visible_rect()", которая на
-	# практике иногда отставала на кадр-другой от реального размера окна — снизу оставался
-	# необъяснимый чёрный зазор). Ширина — фиксированным offset_right под пропорции картинки
-	# (может не дотягивать до края экрана справа — это ожидаемо, см. _update_background()).
+	# Высота ЯВНО берётся из Layout.SCREEN_H (не из anchor-растяжения по родителю и не из
+	# отдельного опроса вьюпорта) — это ТО ЖЕ САМОЕ число, которым _apply_layout уже надёжно
+	# (через опрос в _process, см. его комментарий) выставляет высоту _content, так что фон
+	# гарантированно совпадает по нижнему краю с раскладкой боя/меню, а не может от неё отстать.
 	_background = TextureRect.new()
 	_background.texture = Icons.tex_opt("res://graphics/background.png")
-	_background.anchor_left = 0.0
-	_background.anchor_top = 0.0
-	_background.anchor_right = 0.0
-	_background.anchor_bottom = 1.0
-	_background.offset_left = 0.0
-	_background.offset_top = 0.0
-	_background.offset_bottom = 0.0
 	_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_background.stretch_mode = TextureRect.STRETCH_SCALE
 	_background.visible = false
@@ -270,11 +269,11 @@ func _update_art_region() -> void:
 # сколько получится при таком масштабе, столько и покажется (без обрезки/центрирования).
 func _update_background() -> void:
 	var tex := _background.texture
-	var avail_h := get_viewport().get_visible_rect().size.y
-	if tex == null or avail_h <= 0.0:
+	if tex == null:
 		return
-	var scale := avail_h / float(tex.get_height())
-	_background.offset_right = tex.get_width() * scale   # высота — якорями, см. _build_layout()
+	var scale := Layout.SCREEN_H / float(tex.get_height())
+	_background.position = Vector2.ZERO
+	_background.size = Vector2(tex.get_width() * scale, Layout.SCREEN_H)
 
 
 func _connect_net() -> void:
