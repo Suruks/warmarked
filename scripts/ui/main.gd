@@ -20,6 +20,8 @@ var _opp_bar: ScoreBar   # очки противника — сверху
 var _my_bar: ScoreBar    # очки игрока — под доской
 var panel_host: MarginContainer
 var _menu_art: TextureRect   # арт в пустой верхней области меню (вне матча)
+var _art_tex: Texture2D     # исходная текстура арта
+var _art_atlas: AtlasTexture   # обрезка сверху под текущую ширину/высоту области арта (см. _apply_layout)
 var _background: TextureRect   # фон в матче и коллекции (позади всего, на весь реальный экран)
 var _effect_panel: RichTextLabel   # эффекты выделенного юнита — между очками и скиллами
 var _options_btn: TextureButton    # кнопка настроек — справа в верхнем отступе экрана боя
@@ -121,11 +123,20 @@ func _build_layout() -> void:
 	add_child(_content)
 
 	# Арт-заставка меню в верхней области, где вне матча нет доски. Позади всего остального.
+	# Область (SCREEN_W x PANEL_TOP) заметно шире исходной картинки (та портретная, 540x1200) —
+	# STRETCH_KEEP_ASPECT_COVERED обрезает картинку по высоте, отдавая предпочтение НИЖНЕЙ части
+	# (ботинки охотника видны целиком, а весь запас неба/леса НАД драконом обрезается) — картинка
+	# выглядит «подвинутой вверх», упираясь прямо в статус-бар. AtlasTexture с ручным region_rect
+	# вместо этого обрезает СНИЗУ (запас неба остаётся, дракон и охотник целиком видны, теряется
+	# только трава у самых ботинок) — см. _apply_layout()/_update_art_region().
+	_art_tex = Icons.tex_opt("res://graphics/art.jpg")
+	_art_atlas = AtlasTexture.new()
+	_art_atlas.atlas = _art_tex
 	_menu_art = TextureRect.new()
-	_menu_art.texture = Icons.tex_opt("res://graphics/art.jpg")
+	_menu_art.texture = _art_atlas
 	_menu_art.position = Vector2.ZERO
 	_menu_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_menu_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_menu_art.stretch_mode = TextureRect.STRETCH_SCALE
 	_menu_art.visible = false
 	_content.add_child(_menu_art)
 
@@ -198,6 +209,7 @@ func _apply_layout() -> void:
 	_content.offset_bottom = Layout.SCREEN_H
 
 	_menu_art.size = Vector2(Layout.SCREEN_W, Layout.PANEL_TOP)
+	_update_art_region()
 	_version_lbl.position = Vector2(Layout.SCREEN_W - 64 - 8, 8)
 
 	_opp_bar.position = Vector2(Layout.BOARD_X, Layout.SCORE_TOP_Y)
@@ -222,6 +234,22 @@ func _apply_layout() -> void:
 	_options_btn.position = Vector2(
 		Layout.SCREEN_W - OPT_SIZE - Layout.BOARD_X,
 		OPT_TOP_PAD)
+
+
+# Область арта (SCREEN_W x PANEL_TOP) обычно шире, чем позволяет портретный арт без обрезки
+# по высоте — берём верхнюю часть картинки (запас неба + дракон + охотник целиком), обрезая
+# лишнее снизу, вместо стандартной обрезки TextureRect по центру/снизу.
+func _update_art_region() -> void:
+	var tex_w := float(_art_tex.get_width())
+	var tex_h := float(_art_tex.get_height())
+	var container_ar := Layout.SCREEN_W / Layout.PANEL_TOP
+	var tex_ar := tex_w / tex_h
+	if container_ar >= tex_ar:
+		var region_h := minf(tex_w / container_ar, tex_h)
+		_art_atlas.region = Rect2(0, 0, tex_w, region_h)
+	else:
+		var region_w := tex_h * container_ar
+		_art_atlas.region = Rect2((tex_w - region_w) / 2.0, 0, region_w, tex_h)
 
 
 func _connect_net() -> void:
