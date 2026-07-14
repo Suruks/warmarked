@@ -35,7 +35,7 @@ func register(login: String, password: String) -> Dictionary:
 		[login, pass_hash, salt, now])
 	var user_id: int = _db.last_insert_rowid
 	_db.query_with_bindings("INSERT INTO player_settings (user_id, data) VALUES (?, '{}');", [user_id])
-	return {"ok": true, "user_id": user_id, "rating": 1000}
+	return {"ok": true, "user_id": user_id, "login": login, "rating": 1000, "token": create_session(user_id)}
 
 
 func authenticate(login: String, password: String) -> Dictionary:
@@ -44,7 +44,34 @@ func authenticate(login: String, password: String) -> Dictionary:
 		return {"ok": false, "error": "not_found"}
 	if _hash_password(password, row["salt"]) != row["pass_hash"]:
 		return {"ok": false, "error": "wrong_password"}
-	return {"ok": true, "user_id": row["id"], "rating": row["rating"]}
+	return {"ok": true, "user_id": row["id"], "login": row["login"], "rating": row["rating"],
+		"token": create_session(row["id"])}
+
+
+## Выдаёт новый непрозрачный токен «запомнить меня» для user_id (клиент хранит его
+## на диске и предъявляет через resume_session вместо повторного пароля).
+func create_session(user_id: int) -> String:
+	var token := Crypto.new().generate_random_bytes(32).hex_encode()
+	var now := int(Time.get_unix_time_from_system())
+	_db.query_with_bindings(
+		"INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?);", [token, user_id, now])
+	return token
+
+
+func resume_session(token: String) -> Dictionary:
+	_db.query_with_bindings(
+		"""SELECT users.id AS id, users.login AS login, users.rating AS rating
+		FROM sessions JOIN users ON users.id = sessions.user_id
+		WHERE sessions.token = ?;""", [token])
+	var rows: Array = _db.query_result
+	if rows.is_empty():
+		return {"ok": false, "error": "invalid_session"}
+	var row: Dictionary = rows[0]
+	return {"ok": true, "user_id": row["id"], "login": row["login"], "rating": row["rating"], "token": token}
+
+
+func logout(token: String) -> void:
+	_db.query_with_bindings("DELETE FROM sessions WHERE token = ?;", [token])
 
 
 func _find_user(login: String) -> Dictionary:
@@ -70,6 +97,11 @@ func _create_tables() -> void:
 	_db.create_table("player_settings", {
 		"user_id": {"data_type": "int", "primary_key": true, "foreign_key": "users.id"},
 		"data": {"data_type": "text", "not_null": true, "default": "'{}'"},
+	})
+	_db.create_table("sessions", {
+		"token": {"data_type": "text", "primary_key": true},
+		"user_id": {"data_type": "int", "not_null": true, "foreign_key": "users.id"},
+		"created_at": {"data_type": "int", "not_null": true},
 	})
 	_db.create_table("player_collection", {
 		"user_id": {"data_type": "int", "primary_key": true, "foreign_key": "users.id"},

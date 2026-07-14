@@ -46,6 +46,12 @@ var my_index := -1
 var _auto := false
 var _planning_pp: PlanningPanel = null
 
+# аутентификация — обязательна при старте, см. _begin_auth()/_on_connected_ok()
+var _menu_shown_once := false   # меню открывалось хотя бы раз в этом запуске
+var _authed_connection := false   # текущий сокет ещё жив и авторизован
+var _pending_host := ""           # куда повторить попытку подключения
+var _current_login := ""
+
 
 func _ready() -> void:
 	var args := OS.get_cmdline_args() + OS.get_cmdline_user_args()
@@ -59,9 +65,11 @@ func _ready() -> void:
 	_connect_net()
 	if args.has("autoclient") or args.has("--autoclient"):
 		_auto = true
-		_start_online(_arg_value(args, ["autoclient", "--autoclient"], "127.0.0.1"))
+		_begin_auth(_arg_value(args, ["autoclient", "--autoclient"], "127.0.0.1"))
 	else:
-		_show_menu()
+		# Вход обязателен: без аккаунта недоступно вообще ничего, включая хотсит и игру с ИИ —
+		# меню строится только после успешного auth_ok (см. _on_auth_ok).
+		_begin_auth(DEFAULT_HOST)
 
 
 # Значение аргумента, идущего сразу за одним из ключей (для «-- autoclient <host>»).
@@ -285,9 +293,11 @@ func _update_background() -> void:
 
 
 func _connect_net() -> void:
-	Net.connected_ok.connect(func(): _status("Соединение установлено. Поиск соперника…", true))
-	Net.connect_failed.connect(func(): _status("Не удалось подключиться к серверу.", true))
-	Net.server_gone.connect(func(): _status("Сервер недоступен.", true))
+	Net.connected_ok.connect(_on_connected_ok)
+	Net.connect_failed.connect(func(): _on_connect_trouble("Не удалось подключиться к серверу."))
+	Net.server_gone.connect(func(): _on_connect_trouble("Сервер недоступен."))
+	Net.auth_ok.connect(_on_auth_ok)
+	Net.auth_failed.connect(_on_auth_failed)
 	Net.matched.connect(_on_matched)
 	Net.round_revealed.connect(_on_round_revealed)
 	Net.opponent_progress.connect(_on_opponent_progress)
@@ -301,7 +311,7 @@ func _on_version_mismatch(server_version: int, client_version: int) -> void:
 		push_error("[autoclient] версия %d != сервер %d" % [client_version, server_version])
 		get_tree().quit(1)
 		return
-	_status("Версия игры не совпадает с сервером.\nСервер: v%d, у вас: v%d.\nОбновите страницу (Ctrl+Shift+R) или клиент." % [server_version, client_version], true)
+	_on_connect_trouble("Версия игры не совпадает с сервером.\nСервер: v%d, у вас: v%d.\nОбновите страницу (Ctrl+Shift+R) или клиент." % [server_version, client_version])
 
 
 func _on_opponent_progress(filled: Array) -> void:
@@ -364,13 +374,17 @@ func _on_options_pressed() -> void:
 	chk.toggled.connect(func(on: bool): Settings.allow_impossible_targets = on)
 	box.add_child(chk)
 
-	# Сдаться — прервать текущий бой и вернуться в меню
+	# Сдаться — прервать текущий бой и вернуться в меню. Рвём сокет только для онлайн-матча:
+	# в хотсите/против ИИ сеть не участвует, а сокет — это ещё и постоянная сессия входа,
+	# закрывать её здесь незачем.
 	var surrender := Button.new()
 	surrender.text = "Сдаться"
 	surrender.custom_minimum_size = Vector2(0, 44)
 	surrender.pressed.connect(func():
 		dlg.queue_free()
-		Net.disconnect_net()
+		if online:
+			Net.disconnect_net()
+			_authed_connection = false
 		_show_menu())
 	box.add_child(surrender)
 
@@ -381,10 +395,7 @@ func _on_options_pressed() -> void:
 	dlg.popup_centered()
 
 
-# show_cancel — показать кнопку «Отмена» под текстом (поиск соперника/ошибки до начала матча):
-# обрывает соединение и возвращает в меню. Во время самого матча (ожидание хода соперника)
-# кнопки нет — там для выхода уже есть «Сдаться» в настройках.
-func _status(text: String, show_cancel: bool = false) -> void:
+func _status_box(text: String) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 16)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -394,15 +405,47 @@ func _status(text: String, show_cancel: bool = false) -> void:
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(l)
+	return box
+
+
+# show_cancel — показать кнопку «Отмена» под текстом (поиск соперника/ошибки до начала матча):
+# обрывает соединение и возвращает в уже открытое меню. Во время самого матча (ожидание хода
+# соперника) кнопки нет — там для выхода уже есть «Сдаться» в настройках. Доступна только когда
+# меню уже открывалось хотя бы раз — до первого входа возвращаться некуда (см. _status_retry).
+func _status(text: String, show_cancel: bool = false) -> void:
+	var box := _status_box(text)
 	if show_cancel:
 		var btn := Button.new()
 		btn.text = "Отмена"
 		btn.custom_minimum_size = Vector2(160, 46)
 		btn.pressed.connect(func():
 			Net.disconnect_net()
+			_authed_connection = false
 			_show_menu())
 		box.add_child(btn)
 	_set_panel(box)
+
+
+# Экран без «Отмены»: до первого успешного входа в аккаунт возвращаться некуда, поэтому вместо
+# отмены — повтор попытки подключения/входа на тот же хост.
+func _status_retry(text: String) -> void:
+	var box := _status_box(text)
+	var btn := Button.new()
+	btn.text = "Повторить попытку"
+	btn.custom_minimum_size = Vector2(220, 46)
+	btn.pressed.connect(func(): _begin_auth(_pending_host))
+	box.add_child(btn)
+	_set_panel(box)
+
+
+func _on_connect_trouble(text: String) -> void:
+	_authed_connection = false
+	if not _menu_shown_once:
+		_status_retry(text)   # ещё нет меню — только это и есть текущий экран
+	elif online:
+		_status(text, true)   # мешает онлайн-подключению/поиску/матчу — показываем
+	# иначе (меню, хотсит, ИИ, коллекция) сокет умер фоном — сокет умер, экран не трогаем;
+	# следующий клик «Онлайн» увидит _authed_connection == false и переподключится сам
 
 
 # ============================================================ меню
@@ -434,7 +477,14 @@ func _show_menu() -> void:
 	b_online.text = "Онлайн (найти игру)"
 	b_online.custom_minimum_size = Vector2(0, 52)
 	b_online.add_theme_font_size_override("font_size", 20)
-	b_online.pressed.connect(func(): _start_online(DEFAULT_HOST))
+	b_online.pressed.connect(func():
+		online = true
+		_menu_art.visible = false
+		if _authed_connection:
+			_status("Поиск соперника…", true)
+			Net.join_queue()
+		else:
+			_begin_auth(DEFAULT_HOST))   # разрыв связи со старта — тихо переподключаемся по токену
 	box.add_child(b_online)
 
 	var b_coll := Button.new()
@@ -443,6 +493,25 @@ func _show_menu() -> void:
 	b_coll.add_theme_font_size_override("font_size", 20)
 	b_coll.pressed.connect(_show_collection)
 	box.add_child(b_coll)
+
+	var acc_row := HBoxContainer.new()
+	acc_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	acc_row.add_theme_constant_override("separation", 8)
+	var acc_lbl := Label.new()
+	acc_lbl.text = "Аккаунт: %s" % _current_login
+	acc_lbl.add_theme_font_size_override("font_size", 14)
+	acc_row.add_child(acc_lbl)
+	var b_logout := Button.new()
+	b_logout.text = "Выйти"
+	b_logout.custom_minimum_size = Vector2(70, 32)
+	b_logout.pressed.connect(func():
+		Account.clear_session()
+		Net.disconnect_net()
+		_authed_connection = false
+		_menu_shown_once = false   # снова обязателен вход, прежде чем меню откроется опять
+		_begin_auth(DEFAULT_HOST))
+	acc_row.add_child(b_logout)
+	box.add_child(acc_row)
 
 	_set_panel(box)
 
@@ -635,16 +704,95 @@ func _on_local_resolution_done() -> void:
 		_local_new_round()
 
 
-# ============================================================ онлайн
+# ============================================================ аутентификация
 
-func _start_online(host: String) -> void:
-	online = true
+# Общая точка входа и для старта игры (обязательный вход до меню), и для повторного выхода
+# в онлайн после разрыва связи — оба раза нужно (пере)подключиться и аутентифицироваться.
+func _begin_auth(host: String) -> void:
 	_menu_art.visible = false
 	if host == "":
 		host = DEFAULT_HOST
-	_status("Подключение к %s…" % host, true)
+	_pending_host = host
+	_status("Подключение к %s…" % host)
 	Net.start_client(host)
 
+
+func _on_connected_ok() -> void:
+	if _auto:
+		var auto_login := "auto_%d_%d" % [int(Time.get_unix_time_from_system()), randi()]
+		Net.register(auto_login, "autoclient-pass")
+		return
+	var sess := Account.load_session()
+	if not sess.is_empty():
+		_status("Вход…")
+		Net.resume_session(sess["token"])
+	else:
+		_show_login_panel("", _menu_shown_once)
+
+
+func _show_login_panel(error_text: String = "", show_cancel: bool = false) -> void:
+	_menu_art.visible = false
+	var lp := LoginPanel.new(show_cancel)
+	if not error_text.is_empty():
+		lp.set_error(error_text)
+	lp.login_requested.connect(func(l: String, p: String):
+		_status("Вход…")
+		Net.login(l, p))
+	lp.register_requested.connect(func(l: String, p: String):
+		_status("Регистрация…")
+		Net.register(l, p))
+	if show_cancel:
+		lp.cancelled.connect(func():
+			Net.disconnect_net()
+			_authed_connection = false
+			_show_menu())
+	_set_panel(lp)
+
+
+func _on_auth_ok(login: String, token: String, _rating: int) -> void:
+	Account.save_session(login, token)
+	_current_login = login
+	_authed_connection = true
+	if _auto:
+		Net.join_queue()
+		return
+	if not _menu_shown_once:
+		_menu_shown_once = true
+		_show_menu()
+	else:
+		# Повторный вход был затребован кнопкой «Онлайн» после разрыва связи — сразу в очередь.
+		online = true
+		_status("Поиск соперника…", true)
+		Net.join_queue()
+
+
+func _on_auth_failed(reason: String) -> void:
+	_authed_connection = false
+	if _auto:
+		push_error("[autoclient] авторизация не удалась: %s" % reason)
+		get_tree().quit(1)
+		return
+	var silent_resume := reason == "invalid_session"
+	if silent_resume:
+		Account.clear_session()   # токен протух/отозван — тихо просим войти заново
+	_show_login_panel("" if silent_resume else _auth_error_text(reason), _menu_shown_once)
+
+
+func _auth_error_text(reason: String) -> String:
+	match reason:
+		"login_taken":
+			return "Такой логин уже занят."
+		"wrong_password":
+			return "Неверный пароль."
+		"not_found":
+			return "Такого логина нет. Зарегистрируйтесь."
+		"empty_fields":
+			return "Заполните логин и пароль."
+		_:
+			return "Не удалось войти. Попробуйте ещё раз."
+
+
+# ============================================================ онлайн
 
 func _on_matched(index: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array, map_index: int) -> void:
 	my_index = index
@@ -733,6 +881,10 @@ func _show_victory() -> void:
 	var btn := Button.new()
 	btn.text = "В меню"
 	btn.custom_minimum_size = Vector2(0, 46)
-	btn.pressed.connect(func(): Net.disconnect_net(); _show_menu())
+	btn.pressed.connect(func():
+		if online:
+			Net.disconnect_net()
+			_authed_connection = false
+		_show_menu())
 	box.add_child(btn)
 	_set_panel(box)

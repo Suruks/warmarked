@@ -13,11 +13,15 @@ signal version_mismatch(server_version: int, client_version: int)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
 signal opponent_gone
+signal auth_ok(login: String, token: String, rating: int)
+signal auth_failed(reason: String)
 
 const DEFAULT_PORT := 8910
+const DB_PATH := "user://warmarked.db"
 
 var is_server := false
 var my_index := -1
+var player_db: PlayerDB   # только на сервере
 
 # --- серверные структуры ---
 var _queue: Array = []                 # peer_id ожидающих
@@ -25,6 +29,7 @@ var _matches: Dictionary = {}          # match_id -> {session, peers:[p0,p1]}
 var _peer_match: Dictionary = {}       # peer_id -> match_id
 var _peer_index: Dictionary = {}       # peer_id -> 0/1
 var _peer_loadout: Dictionary = {}     # peer_id -> сетевой кит (санированный)
+var _peer_user: Dictionary = {}        # peer_id -> {user_id, login} — только авторизованные попадают в очередь
 var _next_match_id := 1
 
 
@@ -40,6 +45,8 @@ func start_server(port: int = DEFAULT_PORT) -> int:
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	is_server = true
+	player_db = PlayerDB.new()
+	player_db.open(DB_PATH)
 	print("[server] слушаю ws://0.0.0.0:%d" % port)
 	return OK
 
@@ -78,7 +85,6 @@ func disconnect_net() -> void:
 
 func _on_connected() -> void:
 	connected_ok.emit()
-	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.team_net())
 
 
 func _on_connect_failed() -> void:
@@ -90,6 +96,22 @@ func _on_server_disconnected() -> void:
 
 
 # ============================================================ клиент: вызовы к серверу
+
+func register(login: String, password: String) -> void:
+	rpc_id(1, "req_register", login, password)
+
+
+func login(login: String, password: String) -> void:
+	rpc_id(1, "req_login", login, password)
+
+
+func resume_session(token: String) -> void:
+	rpc_id(1, "req_resume_session", token)
+
+
+func join_queue() -> void:
+	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.team_net())
+
 
 func send_orders(round_num: int, orders: Array) -> void:
 	rpc_id(1, "submit_orders", round_num, NetProtocol.orders_to_data(orders))
@@ -111,6 +133,7 @@ func _on_peer_disconnected(id: int) -> void:
 	print("[server] peer %d отключился" % id)
 	_queue.erase(id)
 	_peer_loadout.erase(id)
+	_peer_user.erase(id)
 	if _peer_match.has(id):
 		var mid: int = _peer_match[id]
 		var m: Dictionary = _matches.get(mid, {})
@@ -123,10 +146,41 @@ func _on_peer_disconnected(id: int) -> void:
 # ============================================================ RPC: клиент → сервер
 
 @rpc("any_peer", "call_remote", "reliable")
+func req_register(login: String = "", password: String = "") -> void:
+	if not is_server:
+		return
+	_respond_auth(multiplayer.get_remote_sender_id(), player_db.register(login, password))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_login(login: String = "", password: String = "") -> void:
+	if not is_server:
+		return
+	_respond_auth(multiplayer.get_remote_sender_id(), player_db.authenticate(login, password))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_resume_session(token: String = "") -> void:
+	if not is_server:
+		return
+	_respond_auth(multiplayer.get_remote_sender_id(), player_db.resume_session(token))
+
+
+func _respond_auth(sender: int, res: Dictionary) -> void:
+	if res.get("ok", false):
+		_peer_user[sender] = {"user_id": res["user_id"], "login": res["login"]}
+		rpc_id(sender, "auth_ok_rpc", String(res["login"]), String(res["token"]), int(res["rating"]))
+	else:
+		rpc_id(sender, "auth_failed_rpc", String(res.get("error", "unknown")))
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func req_join_queue(version: Variant = 0, loadout: Variant = []) -> void:
 	if not is_server:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	if not _peer_user.has(sender):
+		return   # анонимный пир — не авторизован, в очередь не пускаем
 	# Версии обязаны совпадать: иначе лок-степ разойдётся незаметно. Отклоняем в очередь не ставя.
 	var cv: int = version if typeof(version) == TYPE_INT else -1
 	if cv != Consts.PROTOCOL_VERSION:
@@ -228,6 +282,16 @@ func _end_match(mid: int) -> void:
 
 
 # ============================================================ RPC: сервер → клиент
+
+@rpc("authority", "call_remote", "reliable")
+func auth_ok_rpc(login: String, token: String, rating: int) -> void:
+	auth_ok.emit(login, token, rating)
+
+
+@rpc("authority", "call_remote", "reliable")
+func auth_failed_rpc(reason: String) -> void:
+	auth_failed.emit(reason)
+
 
 @rpc("authority", "call_remote", "reliable")
 func match_found_rpc(your_index: int, a_first_on_odd: bool, loadout_a: Variant = [], loadout_b: Variant = [], map_index: int = 0) -> void:

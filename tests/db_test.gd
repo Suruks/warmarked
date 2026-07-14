@@ -17,6 +17,9 @@ func _initialize() -> void:
 	test_duplicate_login_rejected()
 	test_wrong_password_rejected()
 	test_unknown_login_rejected()
+	test_session_resume()
+	test_invalid_session_rejected()
+	test_logout_revokes_session()
 	_wipe_db_file()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -73,4 +76,34 @@ func test_unknown_login_rejected() -> void:
 	var db := _fresh_db()
 	var res := db.authenticate("nobody", "whatever")
 	_check(res["ok"] == false and res["error"] == "not_found", "несуществующий логин отклоняется")
+	db.close()
+
+
+func test_session_resume() -> void:
+	var db := _fresh_db()
+	var reg := db.register("dave", "pw")
+	_check(not String(reg["token"]).is_empty(), "регистрация выдаёт токен сессии")
+	var resumed := db.resume_session(reg["token"])
+	_check(resumed["ok"] == true and resumed["user_id"] == reg["user_id"] and resumed["login"] == "dave",
+		"resume_session по токену регистрации восстанавливает того же игрока")
+	var log_in := db.authenticate("dave", "pw")
+	var resumed2 := db.resume_session(log_in["token"])
+	_check(resumed2["ok"] == true and resumed2["user_id"] == reg["user_id"],
+		"resume_session по токену логина тоже восстанавливает игрока")
+	db.close()
+
+
+func test_invalid_session_rejected() -> void:
+	var db := _fresh_db()
+	var res := db.resume_session("не существующий токен")
+	_check(res["ok"] == false and res["error"] == "invalid_session", "неизвестный токен сессии отклоняется")
+	db.close()
+
+
+func test_logout_revokes_session() -> void:
+	var db := _fresh_db()
+	var reg := db.register("erin", "pw")
+	db.logout(reg["token"])
+	var res := db.resume_session(reg["token"])
+	_check(res["ok"] == false and res["error"] == "invalid_session", "после logout токен больше не работает")
 	db.close()
