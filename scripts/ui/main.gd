@@ -103,11 +103,13 @@ func _process(_delta: float) -> void:
 func _build_layout() -> void:
 	# Фон матча и коллекции — на весь РЕАЛЬНЫЙ экран (не только раскладку), позади всего
 	# остального (первым в дереве, вне _content) — иначе по бокам от раскладки было бы пусто.
+	# Растягивается по высоте (всегда равна экрану), ширина — по пропорциям картинки (может не
+	# дотягивать до края экрана справа — это ожидаемо, не обрезаем и не подгоняем под ширину),
+	# прижат к левому нижнему углу — см. _update_background().
 	_background = TextureRect.new()
 	_background.texture = Icons.tex_opt("res://graphics/background.png")
-	_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_background.stretch_mode = TextureRect.STRETCH_SCALE
 	_background.visible = false
 	add_child(_background)
 
@@ -208,6 +210,8 @@ func _apply_layout() -> void:
 	_content.offset_top = 0.0
 	_content.offset_bottom = Layout.SCREEN_H
 
+	_update_background()
+
 	_menu_art.size = Vector2(Layout.SCREEN_W, Layout.PANEL_TOP)
 	_update_art_region()
 	_version_lbl.position = Vector2(Layout.SCREEN_W - 64 - 8, 8)
@@ -250,6 +254,18 @@ func _update_art_region() -> void:
 	else:
 		var region_w := tex_h * container_ar
 		_art_atlas.region = Rect2((tex_w - region_w) / 2.0, 0, region_w, tex_h)
+
+
+# Фон растянут по высоте (всегда = экрану) и прижат к левому нижнему углу; по ширине —
+# сколько получится при таком масштабе, столько и покажется (без обрезки/центрирования).
+func _update_background() -> void:
+	var tex := _background.texture
+	var avail_h := get_viewport().get_visible_rect().size.y
+	if tex == null or avail_h <= 0.0:
+		return
+	var scale := avail_h / float(tex.get_height())
+	_background.position = Vector2.ZERO
+	_background.size = Vector2(tex.get_width() * scale, avail_h)
 
 
 func _connect_net() -> void:
