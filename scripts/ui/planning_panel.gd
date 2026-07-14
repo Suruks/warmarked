@@ -25,14 +25,14 @@ const HEROICON := 34
 const SKILLS_Y := 4
 const SKILLS_H := 104
 const DESC_Y := 116
+const DONE_W := 120   # «Готово» — в той же строке, что и слоты, справа
 
 # Зависят от Layout.PANEL_W/PANEL_H — растягивается вместе с доской под реальный экран
 # (Layout.recompute), поэтому не const: пересчитываются в _build_ui() при каждом begin().
 var PANEL_W: float
 var PANEL_H: float
-var DONE_Y: float    # «Готово» — прижато к низу экрана
 var HEROICON_Y: float
-var SLOTS_Y: float
+var SLOTS_Y: float    # слоты приказов и «Готово» — одна строка
 var ERR_Y: float
 var DESC_H: float    # описание занимает всё место между скиллами и слотами
 
@@ -110,8 +110,7 @@ func _build_ui() -> void:
 	# экран) — перечитываем их заново при каждой сборке, а не берём фиксированными на старте.
 	PANEL_W = Layout.PANEL_W
 	PANEL_H = Layout.PANEL_H
-	DONE_Y = PANEL_H - 56
-	HEROICON_Y = DONE_Y - 8 - HEROICON
+	HEROICON_Y = PANEL_H - 8 - HEROICON
 	SLOTS_Y = HEROICON_Y - 4 - SLOT_BIG
 	ERR_Y = SLOTS_Y - 26
 	DESC_H = ERR_Y - DESC_Y - 8
@@ -182,14 +181,15 @@ func _build_ui() -> void:
 	var done := Button.new()
 	done.text = "Готово"
 	done.add_theme_font_size_override("font_size", 20)
-	done.position = Vector2(10, DONE_Y)
-	done.size = Vector2(PANEL_W - 20, 48)
+	done.position = Vector2(PANEL_W - DONE_W - 10, SLOTS_Y + (SLOT_BIG - 48) / 2.0)
+	done.size = Vector2(DONE_W, 48)
 	done.pressed.connect(_on_done)
 	add_child(done)
 
 
 # Раскладка ряда слотов в порядке разрешения, чередуя мои (крупные) и соперника (мелкие).
-# Отсутствующие слоты (последний у второго игрока) пропускаются — остальные центрируются.
+# Отсутствующие слоты (последний у второго игрока) пропускаются. Ряд прижат к левому краю —
+# справа в той же строке место под кнопку «Готово» (см. DONE_W).
 func _layout_slots(me_first: bool) -> void:
 	var seq: Array = []   # [{big:bool, i:int}] — чипы в визуальном порядке
 	for i in Consts.ORDER_SLOTS:
@@ -207,10 +207,7 @@ func _layout_slots(me_first: bool) -> void:
 		_slot_heroicons[_locked_slot].visible = false
 	if _opp_locked_slot >= 0:
 		_opp_chips[_opp_locked_slot].visible = false
-	var total := (seq.size() - 1) * SLOT_GAP
-	for s in seq:
-		total += SLOT_BIG if s.big else SLOT_SMALL
-	var x := int((PANEL_W - total) / 2)
+	var x := 10
 	for s in seq:
 		x = (_place_big(s.i, x) if s.big else _place_small(s.i, x)) + SLOT_GAP
 
