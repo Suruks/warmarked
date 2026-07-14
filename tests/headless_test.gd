@@ -29,6 +29,9 @@ func _initialize() -> void:
 	test_shield_nontarget_and_order()
 	test_shield_gates_trap()
 	test_bullet_blocked_by_unit()
+	test_snipe_not_fired_when_blocked_point_blank()
+	test_basic_attack_not_fired_when_blocked_point_blank()
+	test_knockdown_not_fired_when_blocked_point_blank()
 	test_trap_excludes_occupied_and_graves()
 	test_trap_fizzle_on_occupied()
 	test_trap_lives_one_round()
@@ -415,6 +418,63 @@ func test_bullet_blocked_by_unit() -> void:
 	r.resolve(s, oa, _slots(), Consts.Player.A)
 	_check(blocker.hp == 12 - Consts.SNIPE_DMG, "пуля попала в блокера на пути [%d]" % blocker.hp)
 	_check(target.hp == 10, "цель за блокером не задета [%d]" % target.hp)
+
+
+func test_snipe_not_fired_when_blocked_point_blank() -> void:
+	# Снайп (мин. дальность 2) не производится, если линию перекрыл юнит вплотную (дистанция 1,
+	# меньше минимума умения) — а не «бьёт по перехватчику в упор». Мана не тратится.
+	var s := _fresh()
+	s.board.obstacles = {}
+	var h := _place(s, 0, Vector2i(0, 4))          # A hunter
+	h.mana = Consts.SNIPE_MANA
+	_place(s, 1, Vector2i(0, 0))
+	_place(s, 2, Vector2i(6, 6))
+	var blocker := _place(s, 4, Vector2i(1, 4), 12)    # B fairy вплотную (дистанция 1)
+	var target := _place(s, 5, Vector2i(4, 4), 10)     # B crystal — задуманная цель
+	_place(s, 3, Vector2i(6, 0))
+	var oa := _slots()
+	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(4, 4))  # снайп в (4,4)
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(blocker.hp == 12, "снайп в упор: перехватчик цел [%d]" % blocker.hp)
+	_check(target.hp == 10, "снайп в упор: дальняя цель тоже цела [%d]" % target.hp)
+	_check(h.mana == Consts.SNIPE_MANA, "снайп в упор: мана не потрачена [%d]" % h.mana)
+
+
+func test_basic_attack_not_fired_when_blocked_point_blank() -> void:
+	# Выстрел Охотника (мин. дальность 2) не бьёт по перехватчику вплотную (дистанция 1).
+	var s := _fresh()
+	s.board.obstacles = {}
+	_place(s, 0, Vector2i(0, 4))                   # A hunter
+	_place(s, 1, Vector2i(0, 0))
+	_place(s, 2, Vector2i(6, 6))
+	var blocker := _place(s, 4, Vector2i(1, 4), 12)    # B fairy вплотную
+	var target := _place(s, 5, Vector2i(3, 4), 10)     # B crystal — задуманная цель (дальность 3)
+	_place(s, 3, Vector2i(6, 0))
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 4))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(blocker.hp == 12, "выстрел в упор: перехватчик цел [%d]" % blocker.hp)
+	_check(target.hp == 10, "выстрел в упор: дальняя цель тоже цела [%d]" % target.hp)
+
+
+func test_knockdown_not_fired_when_blocked_point_blank() -> void:
+	# Сбить с ног (мин. дальность 2) не бьёт по перехватчику вплотную (дистанция 1).
+	var s := _fresh()
+	s.board.obstacles = {}
+	var h := _place(s, 0, Vector2i(0, 4))
+	h.skills = [Consts.Skill.KNOCKDOWN, Consts.Skill.TRAP, Consts.Skill.SNIPE]
+	h.mana = Consts.KNOCKDOWN_MANA
+	_place(s, 1, Vector2i(0, 0))
+	_place(s, 2, Vector2i(6, 6))
+	var blocker := _place(s, 4, Vector2i(1, 4), 12)
+	var target := _place(s, 5, Vector2i(3, 4), 10)
+	_place(s, 3, Vector2i(6, 0))
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 4))
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(blocker.hp == 12, "сбить с ног в упор: перехватчик цел [%d]" % blocker.hp)
+	_check(target.hp == 10, "сбить с ног в упор: дальняя цель тоже цела [%d]" % target.hp)
+	_check(h.mana == Consts.KNOCKDOWN_MANA, "сбить с ног в упор: мана не потрачена [%d]" % h.mana)
 
 
 func test_trap_excludes_occupied_and_graves() -> void:

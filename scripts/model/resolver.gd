@@ -333,6 +333,12 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 		Consts.HeroType.CRYSTAL:
 			dmg = Consts.CRYSTAL_ATK_DMG
 			victim = state.unit_at(et)
+	# Выстрел Охотника не бьёт ближе минимальной дальности (2): если линию перехватил юнит
+	# вплотную (дистанция 1), выстрел не производится — а не «попадает» по перехватчику в упор.
+	if unit.hero_type == Consts.HeroType.HUNTER and victim != null and _manhattan(unit.cell, victim.cell) < 2:
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s: %s в упор перекрывает линию — Выстрел не производится" % [unit.full_name(), victim.full_name()])
+		return
 	if victim == null:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s бьёт по пустой клетке (%d,%d)" % [unit.full_name(), et.x, et.y])
@@ -381,8 +387,20 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s: не хватает маны на %s" % [unit.full_name(), def.name])
 		return
-	unit.mana -= def.mana
 	var et := _eff_target(state, unit, order, events)
+	# «Пулевые» умения (Снайп/Сбить с ног) бьют первого юнита на линии к цели — если тот встал
+	# вплотную (ближе минимальной дальности умения), выстрел не производится вовсе: цель ещё
+	# ближе минимума значит перехват в упор, а не легальное попадание. Мана не тратится —
+	# каста не было, как при недопустимой геометрии выше.
+	var line_min := _line_shot_min_range(skill)
+	if line_min > 0:
+		var blocker := _first_unit_on_line(state, unit.cell, et)
+		if blocker != null and _manhattan(unit.cell, blocker.cell) < line_min:
+			_push(events, state, Consts.EventType.FIZZLE,
+				"%s: %s в упор перекрывает линию — %s не сработал(-о), мана не потрачена"
+					% [unit.full_name(), blocker.full_name(), def.name])
+			return
+	unit.mana -= def.mana
 	_push(events, state, Consts.EventType.ABILITY,
 		"%s использует %s" % [unit.full_name(), def.name],
 		{"actor": unit.id, "target_cell": et})
@@ -1029,6 +1047,18 @@ func _skill_moves_caster(skill: int) -> bool:
 	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT,
 			Consts.Skill.SWAP, Consts.Skill.RETREAT, Consts.Skill.TELEPORT,
 			Consts.Skill.STEP, Consts.Skill.SWAP_ALLY]
+
+
+# Минимальная дальность «пулевых» умений (бьют первого юнита на прямой линии к выбранной
+# клетке, см. _first_unit_on_line) — 0, если умение не «пулевое» или у него нет минимальной
+# дальности (адjacent — легальная цель сама по себе, перехватывать нечего). Крест смерти и
+# Крюк сюда намеренно не входят: у первого нет выбранной клетки (бьёт ближайшего по каждой из
+# 4 линий — это и есть его механика), у второго минимальная дальность 1 (сосед — легальная цель).
+func _line_shot_min_range(skill: int) -> int:
+	match skill:
+		Consts.Skill.SNIPE: return Consts.SNIPE_MIN
+		Consts.Skill.KNOCKDOWN: return Consts.KNOCKDOWN_MIN
+	return 0
 
 
 # Первый живой юнит на прямой от from к target (стена/край -> пуля погашена, null).
