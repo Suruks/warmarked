@@ -54,12 +54,13 @@ static func pool(hero_type: int) -> Array:
 			return [Consts.Skill.TRAP, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN,
 					Consts.Skill.PRECISE, Consts.Skill.HUNT_MARK, Consts.Skill.RETREAT,
 					Consts.Skill.NET, Consts.Skill.DEATHCROSS, Consts.Skill.MINEFIELD,
-					Consts.Skill.BLEED, Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD]
+					Consts.Skill.BLEED, Consts.Skill.KNOCKDOWN,
+					Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD]
 		Consts.HeroType.FAIRY:
 			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH,
 					Consts.Skill.SPARK, Consts.Skill.DISORIENT, Consts.Skill.MANASTEAL,
 					Consts.Skill.SHACKLES, Consts.Skill.SLOW, Consts.Skill.TELEPORT,
-					Consts.Skill.REVIVE, Consts.Skill.LIGHTNING,
+					Consts.Skill.REVIVE, Consts.Skill.LIGHTNING, Consts.Skill.GUST,
 					Consts.Skill.BLESSING, Consts.Skill.LIGHTNESS]
 		Consts.HeroType.CRYSTAL:
 			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.ONSLAUGHT,
@@ -76,7 +77,8 @@ static func default_skills(hero_type: int) -> Array:
 # Общий пул нейтральных скиллов — их можно навесить любому герою.
 static func neutrals() -> Array:
 	return [Consts.Skill.PUSH, Consts.Skill.STEP, Consts.Skill.BLOCK,
-			Consts.Skill.SWAP_ALLY, Consts.Skill.SELF_HEAL, Consts.Skill.MEDITATION]
+			Consts.Skill.SWAP_ALLY, Consts.Skill.SELF_HEAL, Consts.Skill.MEDITATION,
+			Consts.Skill.HOOK]
 
 
 static func is_neutral(skill: int) -> bool:
@@ -143,6 +145,9 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.BLEED:
 			return AbilityDef.new("Кровавый след", Consts.BLEED_MANA, Target.CELL,
 				"метка на враге в радиусе %d на %d хода: каждое перемещение цели -> %d урона" % [Consts.BLEED_RANGE, Consts.BLEED_TURNS, Consts.BLEED_DMG])
+		Consts.Skill.KNOCKDOWN:
+			return AbilityDef.new("Сбить с ног", Consts.KNOCKDOWN_MANA, Target.CELL,
+				"прямая %d-%d: %d урона первому на линии и отброс на %d клетку от Охотника" % [Consts.KNOCKDOWN_MIN, Consts.KNOCKDOWN_MAX, Consts.KNOCKDOWN_DMG, Consts.KNOCKDOWN_PUSH])
 		Consts.Skill.CANCEL:
 			return AbilityDef.new("Отмена", Consts.CANCEL_MANA, Target.CELL,
 				"щит себе или союзнику рядом: отменяет следующий эффект по нему")
@@ -158,6 +163,9 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.LIGHTNING:
 			return AbilityDef.new("Молния", Consts.LIGHTNING_MANA, Target.CELL,
 				"%d урона одиночной цели на дальности до %d" % [Consts.LIGHTNING_DMG, Consts.LIGHTNING_RANGE])
+		Consts.Skill.GUST:
+			return AbilityDef.new("Дуновение ветра", Consts.GUST_MANA, Target.CELL,
+				"отталкивает юнита в радиусе %d на %d клетки от Феи" % [Consts.GUST_RANGE, Consts.GUST_PUSH])
 		Consts.Skill.SNIPER:
 			return AbilityDef.new("Снайпер", 0, Target.NONE,
 				"пассив: если не двигался в прошлом раунде — базовая атака бьёт на любую дальность и +%d к урону" % Consts.SNIPER_ATK_BONUS, [], true)
@@ -194,6 +202,9 @@ static func skill_def(skill: int) -> AbilityDef:
 		Consts.Skill.MEDITATION:
 			return AbilityDef.new("Медитация", Consts.MEDITATION_MANA, Target.NONE,
 				"+%d маны" % Consts.MEDITATION_GAIN)
+		Consts.Skill.HOOK:
+			return AbilityDef.new("Крюк", Consts.HOOK_MANA, Target.CELL,
+				"прямая до %d: притягивает юнита (врага или союзника) на %d клетку к себе" % [Consts.HOOK_RANGE, Consts.HOOK_PULL])
 		Consts.Skill.DISORIENT:
 			return AbilityDef.new("Дезориентация", Consts.DISORIENT_MANA, Target.CELL,
 				"враг в радиусе %d: его следующий направленный скилл в этом раунде срабатывает в обратную сторону" % Consts.DISORIENT_RANGE)

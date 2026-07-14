@@ -61,21 +61,32 @@ func test_protocol_rejects_malformed() -> void:
 
 
 func test_session_sanitizes_orders() -> void:
-	# сервер не доверяет клиенту: телепорт-ход и удар через всю доску вырезаются,
-	# а раскрывается ровно то, что резолвится (иначе лок-степ сломается)
+	# Сервер режет только СТРУКТУРНО-опасное (телепорт-ход сквозь стены). Геометрию цели он
+	# больше не режет: удар через всю доску доезжает до разрешения и там ФИЗЗЛИТ (никого не бьёт) —
+	# это и есть «планируй невозможное, оно просто не сработает». Раскрывается ровно то, что
+	# резолвится, поэтому лок-степ не ломается.
 	var srv := MatchSession.new(true)
 	var cheat: Array = [Order.empty(), Order.empty(), Order.empty(), Order.empty()]
-	cheat[0] = Order.make_move(0, [Vector2i(0, -5)] as Array[Vector2i])                    # телепорт
-	cheat[1] = Order.make(1, Consts.Action.ATTACK, Vector2i(3, 0), Vector2i(0, -6), true)  # удар в упор через доску
+	cheat[0] = Order.make_move(0, [Vector2i(0, -5)] as Array[Vector2i])                    # телепорт (структурно нелегален)
+	cheat[1] = Order.make(1, Consts.Action.ATTACK, Vector2i(3, 0), Vector2i(0, -6), true)  # удар через доску (нелегальная геометрия)
 	cheat[2] = Order.make_move(0, [Vector2i(0, -1)] as Array[Vector2i])                    # легальный ход
 	srv.submit(0, cheat)
 	var stored: Array = srv.orders_of(0)
-	_check(stored[0].is_empty(), "сессия: телепорт-ход санирован")
-	_check(stored[1].is_empty(), "сессия: ближний удар через всю доску санирован")
+	_check(stored[0].is_empty(), "сессия: телепорт-ход санирован (структурно)")
+	_check(not stored[1].is_empty(), "сессия: удар через доску ПРОПУЩЕН сервером (физзлит на разрешении)")
 	_check(not stored[2].is_empty(), "сессия: легальный ход сохранён")
-	# хантер A стартует на (1,6) и после резолва должен сдвинуться ровно на 1 клетку
+	# запомним HP всех до разрешения — нелегальный удар не должен никого ранить
+	var hp_before := {}
+	for u in srv.state.units:
+		hp_before[u.id] = u.hp
 	srv.submit(1, [Order.empty(), Order.empty(), Order.empty(), Order.empty()])
 	srv.resolve()
+	var no_damage := true
+	for u in srv.state.units:
+		if u.hp != hp_before[u.id]:
+			no_damage = false
+	_check(no_damage, "сессия: удар с нелегальной геометрией физзлил — никто не ранен")
+	# хантер A стартует на (1,6) и после резолва должен сдвинуться ровно на 1 клетку
 	_check(srv.state.get_unit(0).cell == Vector2i(1, 5), "сессия: читер прошёл только легальный шаг [%s]"
 		% str(srv.state.get_unit(0).cell))
 

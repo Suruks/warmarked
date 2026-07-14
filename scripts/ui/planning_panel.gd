@@ -264,10 +264,12 @@ func _on_cell_clicked(cell: Vector2i) -> void:
 		var pu := state.get_unit(_pending_hero)
 		var origin := _origin_for(_pending_hero, _active)
 		var cands := Targeting.candidates(state, pu, _pending_action, origin, _planned_occupancy())
+		# Отладка: с включённой настройкой любая клетка на доске — допустимая цель
+		var free: bool = Settings.allow_impossible_targets and state.board.in_bounds(cell)
 		if _pending_skill() == Consts.Skill.MINEFIELD:
-			if _pick_mine(cell, cands):
+			if _pick_mine(cell, cands, free):
 				return
-		elif cell in cands:
+		elif cell in cands or free:
 			_commit(cell)
 			return
 	# 2) выбор юнита (свой или чужой) для просмотра скиллов
@@ -318,13 +320,17 @@ func _write_slot(i: int, hero: int, action: int, target: Vector2i, path: Array) 
 
 # Минное поле: копим клетки по одной. Возвращает true, если клик обработан нацеливанием
 # (клетка-кандидат выбрана или проигнорирована); false — клетка не кандидат, пусть отработает выбор юнита.
-func _pick_mine(cell: Vector2i, cands: Array) -> bool:
+func _pick_mine(cell: Vector2i, cands: Array, free: bool = false) -> bool:
 	var remaining := _minus(cands, _pending_cells)
-	if not (cell in remaining):
+	var ok: bool = cell in remaining
+	if not ok and free and state.board.in_bounds(cell) and not (cell in _pending_cells):
+		ok = true   # отладка: любая клетка вне уже выбранных
+	if not ok:
 		return false
 	_pending_cells.append(cell)
 	remaining = _minus(cands, _pending_cells)
-	if _pending_cells.size() >= Consts.MINEFIELD_COUNT or remaining.is_empty():
+	# в отладочном режиме не завершаем набор досрочно (свободных клеток ещё много)
+	if _pending_cells.size() >= Consts.MINEFIELD_COUNT or (not free and remaining.is_empty()):
 		_commit_minefield()
 	else:
 		board_view.set_highlights(remaining)
@@ -359,9 +365,14 @@ func _commit(cell: Vector2i) -> void:
 		# иначе цель дальше MOVE_RANGE подсвечена, но путь к ней не находится → пустой ход
 		var mr := state.get_unit(_pending_hero).move_range()
 		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), mr).get(cell, [])
+		if path.is_empty() and Settings.allow_impossible_targets and cell != origin:
+			path = _impossible_move_path(origin, cell, mr)
 	elif _is_path_skill(_pending_skill()):
 		# Отступление/Сходить — путь, как ход, но своей дальностью
-		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), _path_skill_range(_pending_skill())).get(cell, [])
+		var pr := _path_skill_range(_pending_skill())
+		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), pr).get(cell, [])
+		if path.is_empty() and Settings.allow_impossible_targets and cell != origin:
+			path = _impossible_move_path(origin, cell, pr)
 	_write_slot(_active, _pending_hero, _pending_action, cell, path)
 	_advance_active()
 	_clear_pending()
@@ -654,6 +665,43 @@ func _needs_target(unit: Unit, action: int) -> bool:
 	return HeroDefs.for_action(unit.hero_type, action, unit.skills).target != HeroDefs.Target.NONE
 
 
+# Маршрут в клетку, недостижимую при обычном планировании (настройка «невозможные цели»).
+# Смысл настройки — запланировать ход, который станет возможным, если противник к разрешению
+# сместит своего героя. Поэтому сначала прокладываем путь, считая ВРАЖЕСКИЕ токены прозрачными
+# (стены и свои запланированные позиции по-прежнему блокируют): получится тот самый маршрут,
+# который откроется после ухода врага. Резолвер всё равно проверит каждый шаг заново и упрётся,
+# если враг не сдвинулся. Совсем недостижимую клетку (за стеной/за пределом дальности) отдаём
+# прямым L-жестом — приказ запланируется, но при разрешении честно упрётся.
+func _impossible_move_path(origin: Vector2i, cell: Vector2i, rng: int) -> Array:
+	var p: Array = Targeting.move_paths(state, origin, _pending_hero, _occupancy_ignoring_enemies(), rng).get(cell, [])
+	if not p.is_empty():
+		return p
+	return _direct_path(origin, cell)
+
+
+# Как _planned_occupancy(), но без вражеских юнитов: они к разрешению могут сместиться.
+func _occupancy_ignoring_enemies() -> Dictionary:
+	var occ := {}
+	for u in state.units_of(player):
+		if u.alive:
+			occ[_planned_final(u.id)] = {"id": u.id, "owner": u.owner}
+	return occ
+
+
+# Прямой L-образный путь клетками (без origin) в cell: сперва по X, затем по Y.
+# Крайний случай для по-настоящему недостижимой клетки (стена/за пределом дальности).
+func _direct_path(origin: Vector2i, cell: Vector2i) -> Array:
+	var out: Array = []
+	var cur := origin
+	while cur.x != cell.x:
+		cur.x += signi(cell.x - cur.x)
+		out.append(cur)
+	while cur.y != cell.y:
+		cur.y += signi(cell.y - cur.y)
+		out.append(cur)
+	return out
+
+
 # Скиллы, несущие относительный путь (как ход): Отступление и Сходить
 func _is_path_skill(skill: int) -> bool:
 	return skill == Consts.Skill.RETREAT or skill == Consts.Skill.STEP
@@ -801,11 +849,14 @@ func _on_done() -> void:
 			orders.append(Order.make(slot_hero[i], slot_action[i], slot_target[i], off, has_t))
 	# Страховка: всё, что UI считает легальным, обязано пережить серверную санитизацию.
 	# Если правила разойдутся, онлайн-игрок иначе молча потеряет действие — лучше ошибка здесь.
-	var checked := OrderValidator.sanitize(state, orders, player)
-	for i in Consts.ORDER_SLOTS:
-		if not orders[i].is_empty() and checked[i].is_empty():
-			_err_lbl.text = "Слот %d: приказ отклонён проверкой правил" % (i + 1)
-			return
+	# В отладочном режиме «невозможных целей» проверку пропускаем намеренно (локально приказ
+	# отыграется как есть; в онлайне его всё равно отсеет сервер).
+	if not Settings.allow_impossible_targets:
+		var checked := OrderValidator.sanitize(state, orders, player)
+		for i in Consts.ORDER_SLOTS:
+			if not orders[i].is_empty() and checked[i].is_empty():
+				_err_lbl.text = "Слот %d: приказ отклонён проверкой правил" % (i + 1)
+				return
 	board_view.clear_highlights()
 	board_view.set_markers([])
 	board_view.set_routes([])

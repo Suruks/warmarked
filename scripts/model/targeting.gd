@@ -214,6 +214,23 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 					var c: Vector2i = origin + d * r
 					if board.is_passable(c) and board.is_clear_line(origin, c):
 						out.append(c)
+		Consts.Skill.KNOCKDOWN:  # прямая KNOCKDOWN_MIN..KNOCKDOWN_MAX, чистая линия
+			for d in Consts.DIRS4:
+				for r in range(Consts.KNOCKDOWN_MIN, Consts.KNOCKDOWN_MAX + 1):
+					var c: Vector2i = origin + d * r
+					if board.is_passable(c) and board.is_clear_line(origin, c):
+						out.append(c)
+		Consts.Skill.GUST:  # юнит в радиусе 1 (8 сторон) — отталкиваем того, кто там
+			for d in Consts.DIRS8:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.HOOK:  # прямая 1..HOOK_RANGE, чистая линия (притягиваем врага на луче)
+			for d in Consts.DIRS4:
+				for r in range(1, Consts.HOOK_RANGE + 1):
+					var c: Vector2i = origin + d * r
+					if board.is_passable(c) and board.is_clear_line(origin, c):
+						out.append(c)
 		Consts.Skill.NET:  # цель в радиусе NET_RANGE (манхэттен)
 			_ring(board, origin, 1, Consts.NET_RANGE, out)
 		Consts.Skill.BLEED:  # враг в радиусе BLEED_RANGE (манхэттен)

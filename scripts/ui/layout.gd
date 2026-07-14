@@ -11,13 +11,15 @@ extends RefCounted
 const SCREEN_W := 540
 const SCREEN_H := 1200
 
+const TOP_MARGIN := 56                                   # верхний отступ экрана боя; справа в нём — кнопка настроек
+
 const BOARD_X := 4
-const BOARD_Y := 42                                      # под верхней полосой очков
+const BOARD_Y := TOP_MARGIN + 42                         # под верхней полосой очков
 const BOARD_PX := BoardView.CELL * Consts.BOARD_W        # ширина = высота доски (квадрат)
 const BOARD_BOTTOM := BOARD_Y + BoardView.CELL * Consts.BOARD_H
 
 const SCORE_H := 30
-const SCORE_TOP_Y := 8                                   # очки соперника — над доской
+const SCORE_TOP_Y := TOP_MARGIN + 8                      # очки соперника — над доской
 const SCORE_BOTTOM_Y := BOARD_BOTTOM + 4                 # очки игрока — под доской
 const SCORE_PAD := 12                                    # отступ под очками игрока
 

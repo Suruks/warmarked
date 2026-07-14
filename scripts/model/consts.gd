@@ -26,6 +26,9 @@ enum Skill {
 	BLESSING, LIGHTNESS,                                       # Фея — пассивки
 	CRYSTAL_SHELL, DEATH_NOVA,                                 # Кристалкайнд — пассивки
 	PUSH, STEP, BLOCK, SWAP_ALLY, SELF_HEAL, MEDITATION,       # Нейтральные (любому герою)
+	KNOCKDOWN,                                                 # Охотник — сбить с ног
+	GUST,                                                      # Фея — дуновение ветра
+	HOOK,                                                      # Нейтральный — крюк
 }
 
 const SKILLS_PER_HERO := 3
@@ -35,7 +38,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 18
+const PROTOCOL_VERSION := 20
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -58,11 +61,12 @@ const BOARD_W := 7
 const BOARD_H := 7
 
 # --- Матч ---
-const WIN_SCORE := 5
+const WIN_SCORE := 6
 # Ничья: оба игрока набрали WIN_SCORE в одном и том же раунде (например, взаимный размен
 # киллами). Отдельное значение от Player, чтобы MatchState.winner мог различить «победил A/B»
 # и «оба одновременно» без спецфлага.
 const DRAW := 2
+
 # Килл — это ТЕМП, а не победа: пока враг лежит, вы и так забираете точки. Прямая награда
 # держится маленькой, иначе килл суммарно стоит больше половины матча.
 const KILL_POINTS := 1
@@ -134,6 +138,14 @@ const MINEFIELD_COUNT := 3
 const MINEFIELD_RADIUS := 2
 const MINEFIELD_DMG := 5
 
+# Сбить с ног: прямая линия KNOCKDOWN_MIN..KNOCKDOWN_MAX — первому юниту на луче KNOCKDOWN_DMG
+# урона и отброс на KNOCKDOWN_PUSH клетку от Охотника (в сторону выстрела)
+const KNOCKDOWN_MANA := 2
+const KNOCKDOWN_DMG := 2
+const KNOCKDOWN_MIN := 2
+const KNOCKDOWN_MAX := 3
+const KNOCKDOWN_PUSH := 1
+
 # Кровавый след: враг в радиусе BLEED_RANGE получает эффект на BLEED_TURNS ходов;
 # каждое перемещение (вход в клетку) наносит ему BLEED_DMG
 const BLEED_MANA := 2
@@ -161,6 +173,11 @@ const LIGHTNING_MANA := 3
 const LIGHTNING_DMG := 5
 const LIGHTNING_RANGE := 2
 
+# Дуновение ветра: отталкивает юнита в радиусе GUST_RANGE (8 сторон) на GUST_PUSH клеток от Феи
+const GUST_MANA := 2
+const GUST_RANGE := 1
+const GUST_PUSH := 2
+
 # --- Пассивные способности (занимают слот кита, но не активируются и не стоят маны) ---
 const SNIPER_ATK_BONUS := 2        # Снайпер: +урон к базовой атаке
 const COLD_BLOOD_MANA := 3         # Хладнокровие: +мана за килл
@@ -180,6 +197,11 @@ const SELF_HEAL_MANA := 1
 const SELF_HEAL_AMOUNT := 3        # Хил себе: +HP
 const MEDITATION_MANA := 0
 const MEDITATION_GAIN := 1         # Медитация: +мана
+
+# Крюк: прямая линия до HOOK_RANGE — притягивает первого ВРАГА на HOOK_PULL клетку к кастеру
+const HOOK_MANA := 1
+const HOOK_RANGE := 2
+const HOOK_PULL := 1
 
 # Дезориентация: враг в радиусе DISORIENT_RANGE; его следующий НАПРАВЛЕННЫЙ скилл в этом
 # раунде срабатывает в обратную сторону (одноразово)

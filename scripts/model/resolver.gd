@@ -165,6 +165,27 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 				return
 
 
+# Отталкивание на несколько клеток в направлении dir (для Дуновения ветра). Каждый шаг:
+# свободно -> входим (срабатывают капканы/засады/кровотечение); упор в стену/край/юнита ->
+# COLLISION_DMG и остановка. Обездвиживание/смерть в пути прерывают толчок.
+func _shove(state: MatchState, unit: Unit, dir: Vector2i, cells: int, src_player: int, events: Array) -> void:
+	if dir == Vector2i.ZERO:
+		return
+	for _i in cells:
+		var dest := unit.cell + dir
+		var occupant := state.unit_at(dest)
+		if not state.board.is_passable(dest) or occupant != null:
+			_push(events, state, Consts.EventType.COLLISION,
+				"%s впечатан в препятствие -> %d урона" % [unit.full_name(), Consts.COLLISION_DMG],
+				{"victim": unit.id})
+			_deal_damage(state, unit, Consts.COLLISION_DMG, src_player, events, "столкновение")
+			return
+		_enter(state, unit, dest, events, src_player, Consts.EventType.KNOCKBACK,
+			"%s отброшен на (%d,%d)" % [unit.full_name(), dest.x, dest.y])
+		if not unit.alive or unit.immobilized:
+			return
+
+
 # Толчок на 1 клетку в направлении dir; в препятствие/край/юнит -> столкновение (урон)
 func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, events: Array) -> void:
 	if dir == Vector2i.ZERO:
@@ -288,6 +309,11 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s скован — базовая атака недоступна" % unit.full_name())
 		return
+	# Геометрия цели атаки (форма/дальность) — авторитетно здесь (см. _do_ability).
+	if not OrderValidator._target_legal(unit, order.action, _raw_offset(unit, order)):
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s: недопустимая цель атаки" % unit.full_name())
+		return
 	var et := _eff_target(state, unit, order, events)
 	_check_reflexes(state, unit, et, events)   # цель могла увернуться — тогда бьём в пустоту
 	var dmg := 0
@@ -335,6 +361,16 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s обездвижен — %s невозможен" % [unit.full_name(), def.name])
 		return
+	# Геометрия цели (форма/дальность смещения) — авторитетно проверяется ЗДЕСЬ: приказ с
+	# невозможной геометрией физзлит, а не выполняется. Это позволяет игроку планировать
+	# «невозможное» (в т.ч. онлайн) — нелегальное просто не срабатывает при разрешении, а не
+	# режется заранее. Многие скиллы (Сеть/Капкан/Лечение…) сами дальность не проверяют и раньше
+	# полагались на серверную санитизацию — теперь гарантия здесь, у резолвера. Путь-скиллы и
+	# минное поле несут не смещение, а траекторию/список клеток — их структуру валидирует сервер.
+	if not _target_geometry_ok(unit, order, skill, def):
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s: %s — недопустимая цель" % [unit.full_name(), def.name])
+		return
 	if unit.mana < def.mana:
 		_push(events, state, Consts.EventType.FIZZLE,
 			"%s: не хватает маны на %s" % [unit.full_name(), def.name])
@@ -358,6 +394,9 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.DEATHCROSS: _sk_deathcross(state, unit, events)
 		Consts.Skill.MINEFIELD: _sk_minefield(state, unit, order, et, events)
 		Consts.Skill.BLEED: _sk_bleed(state, unit, et, events)
+		Consts.Skill.KNOCKDOWN: _sk_knockdown(state, unit, et, events)
+		Consts.Skill.GUST: _sk_gust(state, unit, et, events)
+		Consts.Skill.HOOK: _sk_hook(state, unit, et, events)
 		Consts.Skill.CANCEL: _sk_cancel(state, unit, et, events)
 		Consts.Skill.HEAL: _sk_heal(state, unit, et, events)
 		Consts.Skill.FLASH: _sk_flash(state, unit, events)
@@ -521,6 +560,48 @@ func _sk_bleed(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> vo
 	v.bleed_owner = unit.owner
 	_push(events, state, Consts.EventType.BLEED_MARKED,
 		"%s оставляет кровавый след на %s (%d хода)" % [unit.full_name(), v.full_name(), Consts.BLEED_TURNS])
+
+
+# Сбить с ног — прямой выстрел: первому юниту на луче KNOCKDOWN_DMG урона и отброс на
+# KNOCKDOWN_PUSH клетку ОТ Охотника (в сторону выстрела). Первым может оказаться союзник —
+# тогда бьём его (как пуля Снайпа, перехватывается тем, кто на линии).
+func _sk_knockdown(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := _first_unit_on_line(state, unit.cell, et)
+	if v == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Сбить с ног: на линии к (%d,%d) никого" % [et.x, et.y])
+		return
+	var dir := _dir_sign(v.cell - unit.cell)   # от Охотника к цели
+	_deal_damage(state, v, Consts.KNOCKDOWN_DMG, unit.owner, events, "сбить с ног", unit)
+	if v.alive:
+		_shove(state, v, dir, Consts.KNOCKDOWN_PUSH, unit.owner, events)
+
+
+# Дуновение ветра — отталкивает юнита в соседней клетке (8 сторон) на GUST_PUSH клеток от Феи
+func _sk_gust(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _cheb(unit.cell, et) != Consts.GUST_RANGE:
+		_push(events, state, Consts.EventType.FIZZLE, "Дуновение ветра: цель не в радиусе")
+		return
+	var v := state.unit_at(et)
+	if v == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Дуновение ветра: на (%d,%d) никого" % [et.x, et.y])
+		return
+	_shove(state, v, _dir_sign(v.cell - unit.cell), Consts.GUST_PUSH, unit.owner, events)
+
+
+# Крюк — прямая линия: притягивает первого юнита на луче (врага ИЛИ союзника) на HOOK_PULL
+# клетку к кастеру. Некуда тянуть (стена/юнит вплотную) — цель остаётся на месте.
+func _sk_hook(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var v := _first_unit_on_line(state, unit.cell, et)
+	if v == null:
+		_push(events, state, Consts.EventType.FIZZLE, "Крюк: на линии к (%d,%d) никого" % [et.x, et.y])
+		return
+	var dir := _dir_sign(unit.cell - v.cell)   # к кастеру
+	var dest := v.cell + dir
+	if state.board.is_passable(dest) and state.unit_at(dest) == null:
+		_enter(state, v, dest, events, unit.owner, Consts.EventType.KNOCKBACK,
+			"%s притянут на (%d,%d)" % [v.full_name(), dest.x, dest.y])
+	else:
+		_push(events, state, Consts.EventType.INFO, "Крюк: %s некуда притянуть" % v.full_name())
 
 
 # Отмена — щит себе или соседнему союзнику
@@ -917,6 +998,24 @@ func _push(events: Array, state: MatchState, type: int, text: String, extra: Dic
 
 func _dir_sign(delta: Vector2i) -> Vector2i:
 	return Vector2i(signi(delta.x), signi(delta.y))
+
+
+# Смещение цели от клетки, из которой резолвер целится (позиционно-независимо, как в
+# OrderValidator._offset). Дезориентация лишь зеркалит смещение — геометрия (форма/дальность)
+# при этом не меняется, поэтому проверяем «сырое» смещение до применения _eff_target.
+func _raw_offset(unit: Unit, order: Order) -> Vector2i:
+	return order.offset if order.relative else order.target - unit.cell
+
+
+# Легальна ли геометрия цели скилла. Путь-скиллы (Отступление/Сходить) и Минное поле несут
+# траекторию/список клеток, а не одиночное смещение — их структуру валидирует сервер, здесь
+# пропускаем. Нецелевые скиллы (без цели) — тоже мимо.
+func _target_geometry_ok(unit: Unit, order: Order, skill: int, def: Variant) -> bool:
+	if def.target == HeroDefs.Target.NONE:
+		return true
+	if skill in [Consts.Skill.RETREAT, Consts.Skill.STEP, Consts.Skill.MINEFIELD]:
+		return true
+	return OrderValidator._target_legal(unit, order.action, _raw_offset(unit, order))
 
 
 # Скиллы, чей эффект перемещает самого кастера (значит, блокируются обездвиживанием)

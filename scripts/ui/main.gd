@@ -19,6 +19,7 @@ var panel_host: MarginContainer
 var _menu_art: TextureRect   # арт в пустой верхней области меню (вне матча)
 var _background: TextureRect   # фон в матче и коллекции (позади всего)
 var _effect_panel: RichTextLabel   # эффекты выделенного юнита — между очками и скиллами
+var _options_btn: TextureButton    # кнопка настроек — справа в верхнем отступе экрана боя
 
 # локальный режим
 var _vs_ai := false          # PvE hotseat: игрок B — бот (AI.plan), человек играет за A
@@ -114,11 +115,27 @@ func _build_layout() -> void:
 	panel_host.size = panel_host.custom_minimum_size
 	add_child(panel_host)
 
+	# кнопка настроек — в правом краю верхнего отступа, видна только в матче.
+	# Добавляем последней, чтобы рисовалась поверх остального.
+	var opt_size := 48   # крупная зона нажатия — палец на мобилке попадает уверенно
+	_options_btn = TextureButton.new()
+	_options_btn.texture_normal = Icons.tex_opt("res://graphics/options.png")
+	_options_btn.ignore_texture_size = true
+	_options_btn.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	_options_btn.custom_minimum_size = Vector2(opt_size, opt_size)
+	_options_btn.size = Vector2(opt_size, opt_size)
+	_options_btn.position = Vector2(
+		Layout.SCREEN_W - opt_size - Layout.BOARD_X,
+		(Layout.TOP_MARGIN - opt_size) / 2)
+	_options_btn.pressed.connect(_on_options_pressed)
+	add_child(_options_btn)
+
 	# доска и счёт скрыты вне матча — в меню/коллекции их нет, только в игре
 	board_view.visible = false
 	_opp_bar.visible = false
 	_my_bar.visible = false
 	_effect_panel.visible = false
+	_options_btn.visible = false
 
 
 func _connect_net() -> void:
@@ -174,6 +191,7 @@ func _update_score_bars() -> void:
 	board_view.visible = state != null
 	_effect_panel.visible = state != null
 	_background.visible = state != null   # фон матча (в коллекции включается отдельно)
+	_options_btn.visible = state != null  # настройки — только во время боя
 	if state == null:
 		_opp_bar.visible = false
 		_my_bar.visible = false
@@ -183,6 +201,38 @@ func _update_score_bars() -> void:
 	var me := board_view.my_player
 	_my_bar.set_score(state.score[me])
 	_opp_bar.set_score(state.score[Consts.other_player(me)])
+
+
+func _on_options_pressed() -> void:
+	var dlg := AcceptDialog.new()
+	dlg.title = "Настройки"
+	dlg.ok_button_text = "Закрыть"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 16)
+	box.custom_minimum_size = Vector2(340, 0)
+
+	# Отладка: разрешить выбирать невозможные цели (корректность цели не проверяется)
+	var chk := CheckBox.new()
+	chk.text = "Разрешить выбирать невозможные цели"
+	chk.button_pressed = Settings.allow_impossible_targets
+	chk.toggled.connect(func(on: bool): Settings.allow_impossible_targets = on)
+	box.add_child(chk)
+
+	# Сдаться — прервать текущий бой и вернуться в меню
+	var surrender := Button.new()
+	surrender.text = "Сдаться"
+	surrender.custom_minimum_size = Vector2(0, 44)
+	surrender.pressed.connect(func():
+		dlg.queue_free()
+		Net.disconnect_net()
+		_show_menu())
+	box.add_child(surrender)
+
+	dlg.add_child(box)
+	dlg.close_requested.connect(dlg.queue_free)
+	dlg.confirmed.connect(dlg.queue_free)
+	add_child(dlg)
+	dlg.popup_centered()
 
 
 func _status(text: String) -> void:

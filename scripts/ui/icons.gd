@@ -66,6 +66,9 @@ const SKILL_FILES := {
 	Consts.Skill.SWAP_ALLY: "swap_ally.png",
 	Consts.Skill.SELF_HEAL: "self_heal.png",
 	Consts.Skill.MEDITATION: "meditation.png",
+	Consts.Skill.KNOCKDOWN: "knockdown.png",   # арт ещё не нарисован -> заглушка
+	Consts.Skill.GUST: "wind_blow.png",
+	Consts.Skill.HOOK: "hook.png",
 }
 
 
