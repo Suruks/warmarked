@@ -106,6 +106,7 @@ func _initialize() -> void:
 	test_immobilize_blocks_movement_skills()
 	test_layout_recompute_matches_original_at_baseline()
 	test_layout_recompute_grows_cell_on_wider_screen()
+	test_layout_recompute_grows_cell_when_only_width_expands()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -1842,4 +1843,16 @@ func test_layout_recompute_grows_cell_on_wider_screen() -> void:
 	_check(is_equal_approx(Layout.SCREEN_W, 700.0), "layout: SCREEN_W подстроился под ширину [%f]" % Layout.SCREEN_W)
 	_check(Layout.PANEL_H > 454.0, "layout: нижняя панель тоже выросла [%f]" % Layout.PANEL_H)
 	# восстановить базовое состояние для остальных тестов (Layout — статический синглтон)
+	Layout.recompute(540.0, 1200.0)
+
+
+func test_layout_recompute_grows_cell_when_only_width_expands() -> void:
+	# Регрессия на реальном баге: у типичного телефона экран ШИРЕ пропорции 540:1200, поэтому
+	# EXPAND расширяет именно ширину канваса, а высота остаётся РОВНО 1200 (не растёт вообще) —
+	# измерено на устройстве 1080x1929 -> canvas 671x1200. При старом MIN_PANEL_H=454 высотный
+	# бюджет был расписан впритык под высоту 1200 при клетке 76 — клетка не росла, сколько бы
+	# лишней ширины ни было. Теперь обязана вырасти заметно даже при неизменной высоте.
+	Layout.recompute(671.0, 1200.0)
+	_check(Layout.cell_size > 84.0, "layout: клетка выросла даже при неизменной высоте [%f]" % Layout.cell_size)
+	_check(Layout.PANEL_H >= Layout.MIN_PANEL_H, "layout: панель не ушла ниже минимума [%f]" % Layout.PANEL_H)
 	Layout.recompute(540.0, 1200.0)
