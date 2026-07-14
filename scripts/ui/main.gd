@@ -103,11 +103,21 @@ func _process(_delta: float) -> void:
 func _build_layout() -> void:
 	# Фон матча и коллекции — на весь РЕАЛЬНЫЙ экран (не только раскладку), позади всего
 	# остального (первым в дереве, вне _content) — иначе по бокам от раскладки было бы пусто.
-	# Растягивается по высоте (всегда равна экрану), ширина — по пропорциям картинки (может не
-	# дотягивать до края экрана справа — это ожидаемо, не обрезаем и не подгоняем под ширину),
-	# прижат к левому нижнему углу — см. _update_background().
+	# Высота — якорями (anchor_top=0/anchor_bottom=1, offset 0/0), т.е. ВСЕГДА равна реальной
+	# высоте окна силами движка каждый кадр, без всякой задержки на наш опрос вьюпорта (тем и
+	# отличается от прежней версии на "size = avail_h из get_visible_rect()", которая на
+	# практике иногда отставала на кадр-другой от реального размера окна — снизу оставался
+	# необъяснимый чёрный зазор). Ширина — фиксированным offset_right под пропорции картинки
+	# (может не дотягивать до края экрана справа — это ожидаемо, см. _update_background()).
 	_background = TextureRect.new()
 	_background.texture = Icons.tex_opt("res://graphics/background.png")
+	_background.anchor_left = 0.0
+	_background.anchor_top = 0.0
+	_background.anchor_right = 0.0
+	_background.anchor_bottom = 1.0
+	_background.offset_left = 0.0
+	_background.offset_top = 0.0
+	_background.offset_bottom = 0.0
 	_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_background.stretch_mode = TextureRect.STRETCH_SCALE
 	_background.visible = false
@@ -264,8 +274,7 @@ func _update_background() -> void:
 	if tex == null or avail_h <= 0.0:
 		return
 	var scale := avail_h / float(tex.get_height())
-	_background.position = Vector2.ZERO
-	_background.size = Vector2(tex.get_width() * scale, avail_h)
+	_background.offset_right = tex.get_width() * scale   # высота — якорями, см. _build_layout()
 
 
 func _connect_net() -> void:
