@@ -459,7 +459,7 @@ func _show_victory() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	var l := Label.new()
 	l.add_theme_font_size_override("font_size", 28)
-	l.text = "Игрок %s победил!" % Consts.player_name(state.winner)
+	l.text = "Ничья!" if state.winner == Consts.DRAW else "Игрок %s победил!" % Consts.player_name(state.winner)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(l)
 	var s := Label.new()

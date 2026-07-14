@@ -207,6 +207,41 @@ func test_kill_scoring() -> void:
 	_check(b.death_cell == Vector2i(3, 2), "килл: клетка смерти запомнена")
 
 
+func test_mutual_kill_at_win_score_is_a_draw() -> void:
+	# Оба игрока уже на WIN_SCORE-1; взаимный размен киллами в ОДНОМ раунде поднимает
+	# обоих до WIN_SCORE одновременно -> ничья, а не победа того, чей килл засчитался первым.
+	var s := _fresh()
+	s.score[Consts.Player.A] = Consts.WIN_SCORE - Consts.KILL_POINTS
+	s.score[Consts.Player.B] = Consts.WIN_SCORE - Consts.KILL_POINTS
+	_place(s, 0, Vector2i(3, 4)).mana = Consts.SNIPE_MANA   # A hunter
+	_place(s, 3, Vector2i(0, 4)).mana = Consts.SNIPE_MANA   # B hunter
+	var av := _place(s, 1, Vector2i(0, 2), 5)                # A fairy — цель B hunter'а
+	var bv := _place(s, 4, Vector2i(3, 2), 5)                # B fairy — цель A hunter'а
+	_place(s, 2, Vector2i(6, 6))                             # A crystal, вне линий огня
+	_place(s, 5, Vector2i(6, 0))                             # B crystal, вне линий огня
+	var oa := _slots()
+	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(3, 2))   # A снайпит B fairy
+	var ob := _slots()
+	ob[2] = Order.make(3, Consts.Action.ABILITY2, Vector2i(0, 2))   # B снайпит A fairy
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(not av.alive and not bv.alive, "взаимный размен: обе феи мертвы")
+	var ev: Array = []
+	s.score_round(ev)
+	_check(s.score[Consts.Player.A] == Consts.WIN_SCORE, "ничья: A набрал WIN_SCORE [%d]" % s.score[Consts.Player.A])
+	_check(s.score[Consts.Player.B] == Consts.WIN_SCORE, "ничья: B набрал WIN_SCORE [%d]" % s.score[Consts.Player.B])
+	_check(s.winner == Consts.DRAW, "ничья: winner == DRAW [%d]" % s.winner)
+
+
+func test_single_win_still_declares_winner() -> void:
+	# Контроль: если порог набрал только один игрок, ничьей быть не должно.
+	var s := _fresh()
+	s.score[Consts.Player.A] = Consts.WIN_SCORE - Consts.CONTROL_POINTS_PER_ROUND
+	_place(s, 2, s.board.control_points[0])   # A crystal стоит на точке контроля один
+	var ev: Array = []
+	s.score_round(ev)
+	_check(s.winner == Consts.Player.A, "победа: одиночный триггер даёт победителя, не ничью [%d]" % s.winner)
+
+
 func test_respawn_at_home_row() -> void:
 	# респ идёт в РОДНУЮ клетку, а не на клетку смерти; стоящий на клетке смерти не наказывается
 	var s := _fresh()
