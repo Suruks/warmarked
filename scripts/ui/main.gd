@@ -133,13 +133,15 @@ func _build_layout() -> void:
 	_content.anchor_bottom = 0.0
 	add_child(_content)
 
-	# Арт-заставка меню в верхней области, где вне матча нет доски. Позади всего остального.
-	# Область (SCREEN_W x PANEL_TOP) заметно шире исходной картинки (та портретная, 540x1200) —
+	# Арт-заставка меню — на ВСЮ область меню (SCREEN_W x SCREEN_H), позади всего остального,
+	# а не только в верхней полосе: иначе ниже неё просвечивал отдельный фон (background.png,
+	# тёмные геометрические абстракции) — чужеродный на фоне сцены с охотником и драконом.
 	# STRETCH_KEEP_ASPECT_COVERED обрезает картинку по высоте, отдавая предпочтение НИЖНЕЙ части
 	# (ботинки охотника видны целиком, а весь запас неба/леса НАД драконом обрезается) — картинка
 	# выглядит «подвинутой вверх», упираясь прямо в статус-бар. AtlasTexture с ручным region_rect
-	# вместо этого обрезает СНИЗУ (запас неба остаётся, дракон и охотник целиком видны, теряется
-	# только трава у самых ботинок) — см. _apply_layout()/_update_art_region().
+	# вместо этого обрезает СНИЗУ, если контейнер шире картинки (запас неба остаётся, дракон и
+	# охотник целиком видны, теряется только трава у самых ботинок), либо обрезает бока, если
+	# контейнер уже картинки (полная высота видна) — см. _apply_layout()/_update_art_region().
 	_art_tex = Icons.tex_opt("res://graphics/art.jpg")
 	_art_atlas = AtlasTexture.new()
 	_art_atlas.atlas = _art_tex
@@ -221,7 +223,7 @@ func _apply_layout() -> void:
 
 	_update_background()
 
-	_menu_art.size = Vector2(Layout.SCREEN_W, Layout.PANEL_TOP)
+	_menu_art.size = Vector2(Layout.SCREEN_W, Layout.SCREEN_H)
 	_update_art_region()
 	_version_lbl.position = Vector2(Layout.SCREEN_W - 64 - 8, 8)
 
@@ -249,13 +251,13 @@ func _apply_layout() -> void:
 		OPT_TOP_PAD)
 
 
-# Область арта (SCREEN_W x PANEL_TOP) обычно шире, чем позволяет портретный арт без обрезки
-# по высоте — берём верхнюю часть картинки (запас неба + дракон + охотник целиком), обрезая
-# лишнее снизу, вместо стандартной обрезки TextureRect по центру/снизу.
+# Область арта (SCREEN_W x SCREEN_H, вся область меню) — если она шире картинки, обрезаем
+# лишнее СНИЗУ (запас неба + дракон + охотник целиком остаются); если уже картинки — обрезаем
+# бока симметрично, высота остаётся полной. Вместо стандартной обрезки TextureRect по центру.
 func _update_art_region() -> void:
 	var tex_w := float(_art_tex.get_width())
 	var tex_h := float(_art_tex.get_height())
-	var container_ar := Layout.SCREEN_W / Layout.PANEL_TOP
+	var container_ar := Layout.SCREEN_W / Layout.SCREEN_H
 	var tex_ar := tex_w / tex_h
 	if container_ar >= tex_ar:
 		var region_h := minf(tex_w / container_ar, tex_h)

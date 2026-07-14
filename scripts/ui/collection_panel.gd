@@ -122,12 +122,6 @@ func _ready() -> void:
 	for i in N_TRIOS:
 		_trio_skills[i] = HeroDefs.sorted_by_mana((team[i].skills as Array))
 
-	var title := Label.new()
-	title.text = "Коллекция"
-	title.add_theme_font_size_override("font_size", 26)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(title)
-
 	_build_source()
 
 	# описание скилла по наведению/тапу
@@ -157,6 +151,12 @@ func _ready() -> void:
 	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(func(): closed.emit())
 	row.add_child(back)
+	var clear := Button.new()
+	clear.text = "Сбросить"
+	clear.custom_minimum_size = Vector2(0, 46)
+	clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clear.pressed.connect(_on_clear)
+	row.add_child(clear)
 	var rnd := Button.new()
 	rnd.text = "Рандом"
 	rnd.custom_minimum_size = Vector2(0, 46)
@@ -184,6 +184,14 @@ func _build_source() -> void:
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 16)   # между РАЗНЫМИ героями — крупнее, чем внутри секции
 	scroll.add_child(col)
+
+	# Заголовок — внутри скролла, первым элементом над пулом скиллов: скроллится вместе с
+	# ними, а не остаётся приклеенным сверху панели.
+	var title := Label.new()
+	title.text = "Коллекция"
+	title.add_theme_font_size_override("font_size", 26)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(title)
 
 	for h in Loadout.HEROES:
 		_add_source_section(col, Consts.hero_name(h), Icons.hero(h), HeroDefs.pool(h))
@@ -321,6 +329,15 @@ func _on_random() -> void:
 	for t in N_TRIOS:
 		_trio_skills[t] = HeroDefs.sorted_by_mana((team[t].skills as Array))
 	_rolled_random = true
+	_err.text = ""
+	_refresh()
+
+
+# «Сбросить»: опустошить все слоты троек, ничего не подставляя взамен.
+func _on_clear() -> void:
+	for t in N_TRIOS:
+		_trio_skills[t] = []
+	_rolled_random = false
 	_err.text = ""
 	_refresh()
 
