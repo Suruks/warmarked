@@ -12,7 +12,7 @@ const DEFAULT_HOST := "wss://warmarked.duckdns.org"
 var state: MatchState
 var resolver := Resolver.new()
 
-const OPT_SIZE := 48   # кнопка настроек — крупная зона нажатия, палец на мобилке попадает уверенно
+const OPT_SIZE := 72   # кнопка настроек — крупная зона нажатия, палец на мобилке попадает уверенно (x1.5)
 
 var board_view: BoardView
 var _opp_bar: ScoreBar   # очки противника — сверху
@@ -217,7 +217,7 @@ func _apply_layout() -> void:
 
 	_options_btn.position = Vector2(
 		Layout.SCREEN_W - OPT_SIZE - Layout.BOARD_X,
-		(Layout.TOP_MARGIN - OPT_SIZE) / 2)
+		(Layout.TOP_MARGIN - OPT_SIZE) / 2.0 + 4.0)   # чуть ниже центра отступа
 
 
 func _connect_net() -> void:

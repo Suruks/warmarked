@@ -8,7 +8,7 @@ extends RefCounted
 ## Дергает recompute() main.gd при старте и на каждый resize/поворот экрана.
 
 # --- Фиксированные отступы (не зависят от размера экрана) ---
-const TOP_MARGIN := 56          # верхний отступ экрана боя; справа в нём — кнопка настроек
+const TOP_MARGIN := 80          # верхний отступ экрана боя; справа в нём — кнопка настроек (72px + запас)
 const BOARD_X := 4              # левый/правый отступ доски и полос от края раскладки
 const BOARD_GAP := 42           # отступ от TOP_MARGIN до верха доски
 const SCORE_H := 30
@@ -27,10 +27,10 @@ const MIN_CELL := 50.0          # ниже не сжимаем клетку — 
 # пропорции 540:1200, поэтому EXPAND расширяет именно ширину, а не высоту — выяснено на
 # реальном устройстве: 1080x1929 -> canvas 671x1200). При МИНИМАЛЬНОМ 454 высотный бюджет
 # был расписан впритык под ровно 1200 при клетке 76 — свободного места для роста не оставалось,
-# сколько бы лишней ширины ни было. 380 — фактический минимум, при котором ещё не уходит в
-# минус описание умения в панели планирования (см. вывод DESC_H в planning_panel.gd:
-# DESC_H = PANEL_H - 312, то есть 380 даёт DESC_H = 68px — работоспособный, а не «в притык»).
-const MIN_PANEL_H := 380.0
+# сколько бы лишней ширины ни было. 364 — сдвинуто с 380 вниз ровно настолько, насколько
+# TOP_MARGIN подрос (кнопка настроек x1.5) — то же самое место для роста клетки (см. вывод
+# DESC_H в planning_panel.gd: DESC_H = PANEL_H - 312, то есть 364 даёт DESC_H = 52px).
+const MIN_PANEL_H := 364.0
 
 # --- Динамические (пересчитываются в recompute() под реальный размер экрана) ---
 # Литералы ниже — те же значения, что дал бы recompute() при 540x1200 (исходная раскладка);
@@ -38,14 +38,14 @@ const MIN_PANEL_H := 380.0
 # ни на что не влияет. Актуализируются вызовом recompute() ещё до первой отрисовки (см. main.gd).
 static var cell_size: float = 76.0
 static var BOARD_PX: float = 532.0
-static var BOARD_Y: float = 98.0
-static var BOARD_BOTTOM: float = 630.0
-static var SCORE_TOP_Y: float = 64.0
-static var SCORE_BOTTOM_Y: float = 634.0
-static var EFFECT_Y: float = 676.0
-static var PANEL_TOP: float = 738.0
+static var BOARD_Y: float = 122.0
+static var BOARD_BOTTOM: float = 654.0
+static var SCORE_TOP_Y: float = 88.0
+static var SCORE_BOTTOM_Y: float = 658.0
+static var EFFECT_Y: float = 700.0
+static var PANEL_TOP: float = 762.0
 static var PANEL_W: float = 532.0
-static var PANEL_H: float = 454.0
+static var PANEL_H: float = 430.0
 static var SCREEN_W: float = 540.0
 static var SCREEN_H: float = 1200.0
 

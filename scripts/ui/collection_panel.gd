@@ -10,8 +10,9 @@ extends VBoxContainer
 signal closed
 
 const N_TRIOS := 3
-const SZ_SLOT := 50     # ячейка слота тройки (9 в ряд должны влезать в ширину)
-const SZ_SOURCE := 95   # ячейка скилла в пуле (крупнее — по 5 в ряд)
+const SLOT_SEP := 4      # отступ между слотами внутри тройки
+const TRIO_SEP := 10     # отступ между тройками
+const SZ_SOURCE := 95    # ячейка скилла в пуле (крупнее — по 5 в ряд)
 
 
 # Ячейка скилла: и в пуле (source, перетаскиваемая), и в слоте тройки (slot).
@@ -207,6 +208,7 @@ func _add_source_section(col: VBoxContainer, title: String, icon_tex: Texture2D,
 
 	var flow := HFlowContainer.new()
 	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.alignment = FlowContainer.ALIGNMENT_CENTER   # иначе в каждой строке пустое место копится справа
 	flow.add_theme_constant_override("h_separation", 5)
 	flow.add_theme_constant_override("v_separation", 5)
 	col.add_child(flow)
@@ -220,8 +222,11 @@ func _add_source_section(col: VBoxContainer, title: String, icon_tex: Texture2D,
 # ------------------------------------------------------------- тройки слотов
 
 func _build_trios() -> void:
+	# 9 слотов (3 тройки по 3) растягиваются на всю ширину панели — размер иконки подбирается
+	# так, чтобы 9*sz + 6*SLOT_SEP + 2*TRIO_SEP ровно заполнило Layout.PANEL_W без остатка.
+	var sz: float = (Layout.PANEL_W - 6.0 * SLOT_SEP - 2.0 * TRIO_SEP) / 9.0
 	var row := TrioRow.new()
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", TRIO_SEP)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	add_child(row)
 	for t in N_TRIOS:
@@ -249,13 +254,13 @@ func _build_trios() -> void:
 		_trio_label[t] = lbl
 		# 3 слота в ряд
 		var slots := HBoxContainer.new()
-		slots.add_theme_constant_override("separation", 4)
+		slots.add_theme_constant_override("separation", SLOT_SEP)
 		slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		group.add_child(slots)
 		_slot_cells[t] = []
 		for i in Consts.SKILLS_PER_HERO:
 			var cell := Cell.new()
-			cell.setup(self, "slot", -1, -1, t, SZ_SLOT)
+			cell.setup(self, "slot", -1, -1, t, sz)
 			slots.add_child(cell)
 			_slot_cells[t].append(cell)
 
