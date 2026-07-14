@@ -26,7 +26,7 @@ if errorlevel 1 (
 
 echo.
 echo === [3/3] Swap, import resources, restart ===
-ssh %HOST% "rm -rf %REMOTE%/scripts && mv %REMOTE%/scripts_new %REMOTE%/scripts && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
+ssh %HOST% "pkill -9 -f 'Godot.*--import'; sleep 1; rm -rf %REMOTE%/scripts && mv %REMOTE%/scripts_new %REMOTE%/scripts && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
 
 echo.
 echo === Done. Check above: active + line with port 8910 ===
