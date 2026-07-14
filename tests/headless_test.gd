@@ -207,6 +207,41 @@ func test_kill_scoring() -> void:
 	_check(b.death_cell == Vector2i(3, 2), "килл: клетка смерти запомнена")
 
 
+func test_mutual_kill_at_win_score_is_a_draw() -> void:
+	# Оба игрока уже на WIN_SCORE-1; взаимный размен киллами в ОДНОМ раунде поднимает
+	# обоих до WIN_SCORE одновременно -> ничья, а не победа того, чей килл засчитался первым.
+	var s := _fresh()
+	s.score[Consts.Player.A] = Consts.WIN_SCORE - Consts.KILL_POINTS
+	s.score[Consts.Player.B] = Consts.WIN_SCORE - Consts.KILL_POINTS
+	_place(s, 0, Vector2i(3, 4)).mana = Consts.SNIPE_MANA   # A hunter
+	_place(s, 3, Vector2i(0, 4)).mana = Consts.SNIPE_MANA   # B hunter
+	var av := _place(s, 1, Vector2i(0, 2), 5)                # A fairy — цель B hunter'а
+	var bv := _place(s, 4, Vector2i(3, 2), 5)                # B fairy — цель A hunter'а
+	_place(s, 2, Vector2i(6, 6))                             # A crystal, вне линий огня
+	_place(s, 5, Vector2i(6, 0))                             # B crystal, вне линий огня
+	var oa := _slots()
+	oa[2] = Order.make(0, Consts.Action.ABILITY2, Vector2i(3, 2))   # A снайпит B fairy
+	var ob := _slots()
+	ob[2] = Order.make(3, Consts.Action.ABILITY2, Vector2i(0, 2))   # B снайпит A fairy
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(not av.alive and not bv.alive, "взаимный размен: обе феи мертвы")
+	var ev: Array = []
+	s.score_round(ev)
+	_check(s.score[Consts.Player.A] == Consts.WIN_SCORE, "ничья: A набрал WIN_SCORE [%d]" % s.score[Consts.Player.A])
+	_check(s.score[Consts.Player.B] == Consts.WIN_SCORE, "ничья: B набрал WIN_SCORE [%d]" % s.score[Consts.Player.B])
+	_check(s.winner == Consts.DRAW, "ничья: winner == DRAW [%d]" % s.winner)
+
+
+func test_single_win_still_declares_winner() -> void:
+	# Контроль: если порог набрал только один игрок, ничьей быть не должно.
+	var s := _fresh()
+	s.score[Consts.Player.A] = Consts.WIN_SCORE - Consts.CONTROL_POINTS_PER_ROUND
+	_place(s, 2, s.board.control_points[0])   # A crystal стоит на точке контроля один
+	var ev: Array = []
+	s.score_round(ev)
+	_check(s.winner == Consts.Player.A, "победа: одиночный триггер даёт победителя, не ничью [%d]" % s.winner)
+
+
 func test_respawn_at_home_row() -> void:
 	# респ идёт в РОДНУЮ клетку, а не на клетку смерти; стоящий на клетке смерти не наказывается
 	var s := _fresh()
@@ -899,18 +934,55 @@ func test_precise_fizzles_off_range() -> void:
 	_check(v.hp == 10, "меткий: цель в упор не поражена [%d]" % v.hp)
 
 
-func test_hunt_mark_doubles_hunter_damage() -> void:
-	# Охота началась: помеченная цель получает ×HUNT_MULT урона от атаки Охотника
+func test_hunt_mark_adds_flat_hunter_damage() -> void:
+	# Охота началась (по прямой): помеченная цель получает +HUNT_BONUS_DMG урона от атаки Охотника
 	var s := _fresh()
 	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)  # A hunter
 	h.mana = Consts.HUNT_MANA
-	var v := _place(s, 3, Vector2i(3, 2), 10)                    # B hunter на дальности 2
+	var v := _place(s, 3, Vector2i(3, 2), 10)                    # B hunter по прямой на дальности 2
 	var oa := _slots()
 	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))  # метка
 	oa[1] = Order.make(0, Consts.Action.ATTACK, Vector2i(3, 2))    # выстрел по помеченному
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
-	var expect := 10 - Consts.HUNTER_ATK_DMG * Consts.HUNT_MULT
-	_check(v.hp == expect, "охота: удвоенный урон Охотника, HP %d [%d]" % [expect, v.hp])
+	var expect := 10 - (Consts.HUNTER_ATK_DMG + Consts.HUNT_BONUS_DMG)
+	_check(v.hp == expect, "охота: усиленный урон Охотника, HP %d [%d]" % [expect, v.hp])
+	_check(v.hunt_turns == Consts.HUNT_TURNS, "охота: метка взведена на %d ходов [%d]" % [Consts.HUNT_TURNS, v.hunt_turns])
+
+
+func test_hunt_mark_marks_first_on_line() -> void:
+	# Охота бьёт по прямой: метит ПЕРВОГО врага на луче, дальний за ним не задет
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)   # A hunter
+	h.mana = Consts.HUNT_MANA
+	var near := _place(s, 3, Vector2i(3, 3), 10)                  # ближний враг на линии
+	var far := _place(s, 4, Vector2i(3, 2), 10)                   # дальний враг на той же линии
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))   # целим в дальнюю клетку
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(near.hunt_turns == Consts.HUNT_TURNS, "охота: помечен первый на линии [%d]" % near.hunt_turns)
+	_check(far.hunt_turns == 0, "охота: дальний за первым не помечен [%d]" % far.hunt_turns)
+
+
+func test_hunt_mark_fizzles_off_line() -> void:
+	# Врага нет на прямой линии к цели — метка физзлит (никого не метит)
+	var s := _fresh()
+	var h := _arm(s, 0, Vector2i(3, 4), Consts.Skill.HUNT_MARK)   # A hunter
+	h.mana = Consts.HUNT_MANA
+	var off := _place(s, 3, Vector2i(5, 2), 10)                   # враг в стороне, не на луче x=3
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 2))   # прямая вверх, на линии пусто
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(off.hunt_turns == 0, "охота: враг вне линии не помечен [%d]" % off.hunt_turns)
+
+
+func test_hunt_mark_expires_after_turns() -> void:
+	# Метка держится через раунды и истекает через HUNT_TURNS ходов (как Кровавый след)
+	var s := _fresh()
+	var foe := _place(s, 3, Vector2i(3, 2), 10)
+	foe.hunt_turns = Consts.HUNT_TURNS
+	for i in Consts.HUNT_TURNS:
+		s.begin_round()
+	_check(foe.hunt_turns == 0, "охота: истекла после %d ходов [%d]" % [Consts.HUNT_TURNS, foe.hunt_turns])
 
 
 func test_retreat_moves_when_enemy_adjacent() -> void:

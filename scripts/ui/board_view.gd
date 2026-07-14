@@ -497,9 +497,6 @@ func _active_effects(u: Dictionary) -> Array:
 	if u.get("immobilized", false):
 		out.append({"file": "effect_immobilized.png", "name": "Обездвижен",
 			"dur": "до конца раунда", "desc": "Не может ходить и применять скиллы-перемещения"})
-	if u.get("hunted", false):
-		out.append({"file": "effect_hunt.png", "name": "Охота началась",
-			"dur": "этот раунд", "desc": "Урон Охотника по цели ×%d" % Consts.HUNT_MULT})
 	if u.get("disoriented", false):
 		out.append({"file": "effect_disorient.png", "name": "Дезориентация",
 			"dur": "этот раунд", "desc": "Следующий направленный скилл сработает в обратную сторону"})
@@ -515,6 +512,10 @@ func _active_effects(u: Dictionary) -> Array:
 	if sl > 0:
 		out.append({"file": "effect_slow.png", "name": "Замедление",
 			"dur": _plural_turns(sl), "desc": "-%d к дальности хода" % Consts.SLOW_MOVE_PENALTY})
+	var hn: int = u.get("hunted", 0)
+	if hn > 0:
+		out.append({"file": "effect_hunt.png", "name": "Охота началась",
+			"dur": _plural_turns(hn), "desc": "Урон Охотника по цели +%d" % Consts.HUNT_BONUS_DMG})
 	return out
 
 

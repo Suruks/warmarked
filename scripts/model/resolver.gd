@@ -188,9 +188,9 @@ func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, e
 func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int, events: Array, label: String,
 		src_unit: Unit = null, retaliate: bool = true) -> void:
 	var dmg := amount
-	# «Охота началась»: урон Охотника по помеченной цели умножается
-	if target.hunted and src_unit != null and src_unit.hero_type == Consts.HeroType.HUNTER:
-		dmg *= Consts.HUNT_MULT
+	# «Охота началась»: урон Охотника по помеченной цели увеличен на фикс. значение
+	if target.hunt_turns > 0 and src_unit != null and src_unit.hero_type == Consts.HeroType.HUNTER:
+		dmg += Consts.HUNT_BONUS_DMG
 	if target.hero_type == Consts.HeroType.CRYSTAL:
 		dmg = max(0, dmg - Consts.CRYSTAL_PASSIVE_REDUCTION)
 	# «Кристальный панцирь»: первый урон за раунд меньше на SHELL_REDUCTION
@@ -441,15 +441,17 @@ func _sk_precise(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> 
 	_deal_damage(state, v, Consts.PRECISE_DMG, unit.owner, events, "меткий выстрел", unit)
 
 
-# Охота началась — метка на враге: урон Охотника по нему умножается до конца раунда
+# Охота началась — выстрел по прямой линии: метит ПЕРВОГО врага на луче до цели на
+# HUNT_TURNS ходов (урон Охотника по нему увеличен на HUNT_BONUS_DMG). Первым на линии может
+# оказаться и союзник — тогда он перехватывает выстрел и метка физзлит (как пуля Снайпа).
 func _sk_hunt(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
-	var v := state.unit_at(et)
+	var v := _first_unit_on_line(state, unit.cell, et)
 	if v == null or v.owner == unit.owner:
-		_push(events, state, Consts.EventType.FIZZLE, "Охота началась: на (%d,%d) нет врага" % [et.x, et.y])
+		_push(events, state, Consts.EventType.FIZZLE, "Охота началась: на линии к (%d,%d) нет врага" % [et.x, et.y])
 		return
-	v.hunted = true
+	v.hunt_turns = Consts.HUNT_TURNS
 	_push(events, state, Consts.EventType.HUNT_MARKED,
-		"%s начинает охоту на %s (×%d урона)" % [unit.full_name(), v.full_name(), Consts.HUNT_MULT])
+		"%s начинает охоту на %s (+%d урона, %d хода)" % [unit.full_name(), v.full_name(), Consts.HUNT_BONUS_DMG, Consts.HUNT_TURNS])
 
 
 # Отступление — если рядом враг, пройти относительный путь (как ход). Обездвиживание уже
@@ -665,6 +667,7 @@ func _sk_revive(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> v
 	ally.bleed_turns = 0
 	ally.no_attack_turns = 0
 	ally.slow_turns = 0
+	ally.hunt_turns = 0
 	ally.disoriented = false
 	_push(events, state, Consts.EventType.RESPAWN,
 		"%s воскрешает %s на (%d,%d)" % [unit.full_name(), ally.full_name(), dest.x, dest.y])

@@ -101,8 +101,23 @@ func acts_in_slot(player: int, slot: int) -> bool:
 
 func add_score(player: int, pts: int) -> void:
 	score[player] += pts
-	if score[player] >= Consts.WIN_SCORE and winner < 0:
-		winner = player
+
+
+# Победа фиксируется только по итогам ВСЕГО раунда (киллы в резолве + контроль точек в
+# score_round), а не в момент первого начисления очка: если оба игрока в одном раунде
+# независимо набрали WIN_SCORE (например, взаимный размен киллами) — это ничья, а не победа
+# того, чьё очко долетело до порога первым.
+func _check_winner() -> void:
+	if winner >= 0:
+		return
+	var a_won: bool = score[Consts.Player.A] >= Consts.WIN_SCORE
+	var b_won: bool = score[Consts.Player.B] >= Consts.WIN_SCORE
+	if a_won and b_won:
+		winner = Consts.DRAW
+	elif a_won:
+		winner = Consts.Player.A
+	elif b_won:
+		winner = Consts.Player.B
 
 
 # --- Начало раунда: инкремент, мана, снятие/взвод эффектов, респ, экспирация ---
@@ -114,7 +129,6 @@ func begin_round() -> Array:
 		u.reflexes_armed = false
 		u.hardened = false
 		u.shards_armed = false
-		u.hunted = false
 		u.disoriented = false   # дезориентация действует лишь на свой раунд
 		u.shell_used = false     # «Кристальный панцирь» — срезка снова доступна
 		u.block_amount = 0       # «Блок» — запас поглощения сбрасывается
@@ -131,6 +145,8 @@ func begin_round() -> Array:
 			u.no_attack_turns -= 1
 		if u.slow_turns > 0:
 			u.slow_turns -= 1
+		if u.hunt_turns > 0:
+			u.hunt_turns -= 1
 		if u.alive and round_num > 1:
 			u.mana += 1
 	# Респ мёртвых
@@ -191,6 +207,7 @@ func _try_respawn(u: Unit, events: Array) -> void:
 	u.bleed_owner = -1
 	u.no_attack_turns = 0
 	u.slow_turns = 0
+	u.hunt_turns = 0
 	u.disoriented = false
 	events.append(_ev(Consts.EventType.RESPAWN,
 		"%s воскрешается на (%d,%d)" % [u.full_name(), cell.x, cell.y]))
@@ -249,6 +266,9 @@ func score_round(events: Array) -> void:
 		events.append(_ev(Consts.EventType.SCORE, "Контроль точек: B держит %d:%d -> +%d B" % [b, a, Consts.CONTROL_POINTS_PER_ROUND]))
 	else:
 		events.append(_ev(Consts.EventType.INFO, "Контроль точек: равенство %d:%d, очко никому" % [a, b]))
+	_check_winner()
+	if winner == Consts.DRAW:
+		events.append(_ev(Consts.EventType.SCORE, "Оба игрока набрали %d очков одновременно — ничья" % Consts.WIN_SCORE))
 
 
 func _ev(type: int, text: String, extra: Dictionary = {}) -> Dictionary:
