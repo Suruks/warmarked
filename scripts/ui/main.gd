@@ -40,6 +40,8 @@ func _ready() -> void:
 	if args.has("server") or args.has("--server"):
 		Net.start_server(Net.DEFAULT_PORT)
 		return
+	get_window().size_changed.connect(_adapt_stretch_for_orientation)
+	_adapt_stretch_for_orientation()
 	# Коллекция живёт только в памяти на сессию — с диска не читаем и на диск не пишем.
 	_build_layout()
 	_connect_net()
@@ -56,6 +58,20 @@ func _arg_value(args: Array, keys: Array, fallback: String) -> String:
 		if args[i] in keys and i + 1 < args.size():
 			return args[i + 1]
 	return fallback
+
+
+# На портретном экране (выше, чем шире — телефон/планшет вертикально) растягиваем канвас без
+# чёрных полос по бокам: EXPAND сам расширяет сверх базовых 540x1200 ту ось (обычно высоту),
+# которой не хватает, чтобы покрыть экран целиком, — ничего в раскладке менять не нужно, она
+# вся отсчитана от верхнего края. На ландшафте (ПК и т.п.) оставляем как есть: полосы там при
+# несовпадающих пропорциях ожидаемы, трогать не просили. Держим в актуальном состоянии
+# отдельным колбэком на size_changed — так работает и разворот устройства, и ресайз окна.
+func _adapt_stretch_for_orientation() -> void:
+	var sz := DisplayServer.window_get_size()
+	var portrait := sz.y > sz.x
+	var target := Window.CONTENT_SCALE_ASPECT_EXPAND if portrait else Window.CONTENT_SCALE_ASPECT_KEEP
+	if get_window().content_scale_aspect != target:
+		get_window().content_scale_aspect = target
 
 
 func _build_layout() -> void:
