@@ -1,13 +1,13 @@
 class_name Difficulty
 extends RefCounted
 
-## Сложность боя «против ИИ»: слайдер 1..24. Уровень 1 — игра без модификаторов. Каждый
+## Сложность боя «против ИИ»: слайдер 1..40. Уровень 1 — игра без модификаторов. Каждый
 ## следующий уровень добавляет ОДИН модификатор поверх уже применённых на предыдущих уровнях —
 ## 5 типов по кругу (2 HP -> 2 мана -> урон умения -> дешевле умение -> бонусная способность ->
 ## снова HP -> ...). Модификаторы получает только команда бота — усиливают ИИ, игрока не касаются.
 
 const MIN_LEVEL := 1
-const MAX_LEVEL := 24
+const MAX_LEVEL := 40
 
 enum ModType { HP, MANA, ATK_DMG, ABILITY_COST, EXTRA_ABILITY }
 const _CYCLE := [ModType.HP, ModType.MANA, ModType.ATK_DMG, ModType.ABILITY_COST, ModType.EXTRA_ABILITY]
