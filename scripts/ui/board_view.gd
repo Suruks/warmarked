@@ -17,15 +17,7 @@ signal drag_ended()                              # отпустили — мар
 const DEFAULT_CELL := 76.0
 const PAD := 6
 
-# board.png: клетки идут с (57, 67), шаг 153px (в родных пикселях картинки). Рисуем ТОЛЬКО
-# область клеток (57,67)..(57+7*153, 67+7*153) растянутой на 7x7 сетку экрана — декоративная
-# рамка вокруг (лево 57 / право 44 / верх 67 / низ 34) не рисуется, чтобы не наезжать на полосы
-# очков, которые вплотную к доске. Стены и победные точки рисуются ПОВЕРХ (см. _draw).
-const BOARD_TEX_ORIGIN := Vector2(57, 67)
-const BOARD_TEX_CELL := 153.0
-
 var cell_size: float = DEFAULT_CELL   # клетка доски в пикселях; растёт/уменьшается под экран (Layout.recompute)
-var _board_tex: Texture2D
 
 const MOVE_DUR := 0.36
 const LUNGE_DUR := 0.32
@@ -76,7 +68,6 @@ const COL_ROUTE := Color(0.93, 0.96, 1.0, 0.5)   # светлая полупро
 
 func _ready() -> void:
 	_font = ThemeDB.fallback_font
-	_board_tex = Icons.tex_opt("res://graphics/board.png")
 	custom_minimum_size = Vector2(cell_size * Consts.BOARD_W, cell_size * Consts.BOARD_H)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
@@ -371,24 +362,13 @@ func _draw() -> void:
 	if _font == null:
 		_font = ThemeDB.fallback_font
 	draw_rect(Rect2(Vector2.ZERO, custom_minimum_size), COL_BG)
-	if _board_tex != null:
-		# фон доски — картинкой: область клеток board.png растянута ровно на 7x7 сетку экрана.
-		var src := Rect2(BOARD_TEX_ORIGIN, Vector2(BOARD_TEX_CELL * Consts.BOARD_W, BOARD_TEX_CELL * Consts.BOARD_H))
-		var dst := Rect2(0, 0, cell_size * Consts.BOARD_W, cell_size * Consts.BOARD_H)
-		draw_texture_rect_region(_board_tex, dst, src)
-		# стены — поверх картинки (пустые клетки уже нарисованы ею)
-		for sy in Consts.BOARD_H:
-			for sx in Consts.BOARD_W:
-				if board.is_obstacle(_flip_cell(Vector2i(sx, sy))):
-					draw_rect(Rect2(sx * cell_size, sy * cell_size, cell_size, cell_size), COL_OBSTACLE)
-	else:
-		# запасной путь (картинка не загрузилась): прежняя отрисовка примитивами
-		for sy in Consts.BOARD_H:
-			for sx in Consts.BOARD_W:
-				var real := _flip_cell(Vector2i(sx, sy))
-				var rect := Rect2(sx * cell_size, sy * cell_size, cell_size, cell_size)
-				draw_rect(rect, COL_OBSTACLE if board.is_obstacle(real) else COL_CELL)
-				draw_rect(rect, COL_GRID, false, 1.0)
+	# грид: идём по экранным клеткам, содержимое берём из реальной клетки
+	for sy in Consts.BOARD_H:
+		for sx in Consts.BOARD_W:
+			var real := _flip_cell(Vector2i(sx, sy))
+			var rect := Rect2(sx * cell_size, sy * cell_size, cell_size, cell_size)
+			draw_rect(rect, COL_OBSTACLE if board.is_obstacle(real) else COL_CELL)
+			draw_rect(rect, COL_GRID, false, 1.0)
 	for cp in board.control_points:
 		var ctr := _scell(cp)
 		var r := cell_size * 0.5 - 4
