@@ -265,15 +265,21 @@ func _update_art_region() -> void:
 		_art_atlas.region = Rect2((tex_w - region_w) / 2.0, 0, region_w, tex_h)
 
 
-# Фон растянут по высоте (всегда = экрану) и прижат к левому нижнему углу; по ширине —
-# сколько получится при таком масштабе, столько и покажется (без обрезки/центрирования).
+# Фон покрывает ВЕСЬ реальный видимый экран без пустот (режим «cover», как в CSS): масштаб —
+# по БОЛЬШЕЙ из осей (max по ширине/высоте), пропорции сохраняются, лишнее по одной из осей
+# выходит за кромку и обрезается, центрируем. Размер экрана берём из _last_layout_size — это
+# фактический размер вьюпорта, под который _process уже посчитал текущую раскладку (тот же
+# надёжный ежекадровый опрос), а НЕ Layout.SCREEN_H (там maxf с мин. высотой панели, из-за
+# чего фон мог уезжать низом за кромку).
 func _update_background() -> void:
 	var tex := _background.texture
 	if tex == null:
 		return
-	var scale := Layout.SCREEN_H / float(tex.get_height())
-	_background.position = Vector2.ZERO
-	_background.size = Vector2(tex.get_width() * scale, Layout.SCREEN_H)
+	var screen := _last_layout_size
+	var scale := maxf(screen.x / float(tex.get_width()), screen.y / float(tex.get_height()))
+	var size := Vector2(tex.get_width() * scale, tex.get_height() * scale)
+	_background.size = size
+	_background.position = (screen - size) / 2.0
 
 
 func _connect_net() -> void:

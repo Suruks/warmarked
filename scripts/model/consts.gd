@@ -244,7 +244,7 @@ const DASH_DMG := 4
 
 # Натиск: бьёт соседа, отбрасывает его и занимает освободившуюся клетку
 const ONSLAUGHT_MANA := 4
-const ONSLAUGHT_DMG := 5
+const ONSLAUGHT_DMG := 3
 
 # Острые шипы: урон по 4 диагонально-соседним клеткам (по своим тоже)
 const SPIKES_MANA := 2
