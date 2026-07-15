@@ -755,7 +755,10 @@ func _on_connected_ok() -> void:
 
 
 func _show_login_panel(error_text: String = "", show_cancel: bool = false) -> void:
-	_menu_art.visible = false
+	# Арт-заставка (art.jpg) на весь экран как фон формы входа: сама форма живёт в panel_host
+	# (добавлен в _content позже _menu_art, поэтому рисуется поверх арта), а _background.png
+	# остаётся под артом. До этого экран логина был чёрным (арт прятался).
+	_menu_art.visible = true
 	var lp := LoginPanel.new(show_cancel)
 	if not error_text.is_empty():
 		lp.set_error(error_text)
