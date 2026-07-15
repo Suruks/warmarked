@@ -1,13 +1,18 @@
 class_name Difficulty
 extends RefCounted
 
-## Сложность боя «против ИИ»: слайдер 1..40. Уровень 1 — игра без модификаторов. Каждый
+## Сложность боя «против ИИ»: слайдер 1..50. Уровень 1 — игра без модификаторов. Каждый
 ## следующий уровень добавляет ОДИН модификатор поверх уже применённых на предыдущих уровнях —
 ## 5 типов по кругу (2 HP -> 2 мана -> урон умения -> дешевле умение -> бонусная способность ->
 ## снова HP -> ...). Модификаторы получает только команда бота — усиливают ИИ, игрока не касаются.
+##
+## Уровни открываются блоками по TIER: изначально доступны 1..TIER, победа на последнем открытом
+## уровне открывает следующий блок, и так до MAX_LEVEL. `unlocked` — сессионное зеркало серверного
+## прогресса аккаунта (грузится при входе, см. main.gd/_on_auth_ok, сохраняется через Net).
 
 const MIN_LEVEL := 1
-const MAX_LEVEL := 40
+const MAX_LEVEL := 50
+const TIER := 5
 
 enum ModType { HP, MANA, ATK_DMG, ABILITY_COST, EXTRA_ABILITY }
 const _CYCLE := [ModType.HP, ModType.MANA, ModType.ATK_DMG, ModType.ABILITY_COST, ModType.EXTRA_ABILITY]
@@ -22,11 +27,34 @@ const _DAMAGE_SKILLS := [
 	Consts.Skill.SPIKES,
 ]
 
-static var level: int = 1   # выбранный уровень сложности; живёт на сессию, как Loadout
+static var level: int = 1        # выбранный уровень сложности; живёт на сессию, как Loadout
+static var unlocked: int = TIER  # старший доступный уровень (кратно TIER); источник истины — сервер
 
 
 static func set_level(l: int) -> void:
-	level = clampi(l, MIN_LEVEL, MAX_LEVEL)
+	level = clampi(l, MIN_LEVEL, unlocked)
+
+
+static func set_unlocked(v: int) -> void:
+	unlocked = sanitize_unlocked(v)
+
+
+# Любая аномалия (не число, не кратно TIER, вне диапазона) → ближе к дефолту, не роняем.
+static func sanitize_unlocked(v: Variant) -> int:
+	if typeof(v) != TYPE_INT and typeof(v) != TYPE_FLOAT:
+		return TIER
+	var n: int = (int(v) / TIER) * TIER   # округление вниз до границы тира
+	return clampi(n, TIER, MAX_LEVEL)
+
+
+# Победа на level_played: если это был (как минимум) старший доступный уровень и есть куда расти —
+# открывает следующий блок из TIER уровней и возвращает true (для UI-уведомления). Игра ниже
+# текущего потолка (просто по фану) прогресс не двигает.
+static func record_win(level_played: int) -> bool:
+	if level_played < unlocked or unlocked >= MAX_LEVEL:
+		return false
+	unlocked = mini(unlocked + TIER, MAX_LEVEL)
+	return true
 
 
 # Применяет к команде бота (bot_player) все модификаторы уровня level. Вызывать ровно один раз,

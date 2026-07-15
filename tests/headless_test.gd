@@ -107,6 +107,8 @@ func _initialize() -> void:
 	test_layout_recompute_matches_original_at_baseline()
 	test_layout_recompute_grows_cell_on_wider_screen()
 	test_layout_recompute_grows_cell_when_only_width_expands()
+	test_difficulty_sanitize_unlocked()
+	test_difficulty_tier_unlock()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -1858,3 +1860,45 @@ func test_layout_recompute_grows_cell_when_only_width_expands() -> void:
 	_check(Layout.cell_size > 84.0, "layout: клетка выросла даже при неизменной высоте [%f]" % Layout.cell_size)
 	_check(Layout.PANEL_H >= Layout.MIN_PANEL_H, "layout: панель не ушла ниже минимума [%f]" % Layout.PANEL_H)
 	Layout.recompute(540.0, 1200.0)
+
+
+func test_difficulty_sanitize_unlocked() -> void:
+	_check(Difficulty.sanitize_unlocked(null) == Difficulty.TIER, "difficulty: не число -> TIER")
+	_check(Difficulty.sanitize_unlocked("25") == Difficulty.TIER, "difficulty: строка (не число) -> TIER")
+	_check(Difficulty.sanitize_unlocked(23) == 20, "difficulty: округление вниз до границы тира [23 -> 20]")
+	_check(Difficulty.sanitize_unlocked(23.0) == 20, "difficulty: float санируется так же, как int")
+	_check(Difficulty.sanitize_unlocked(0) == Difficulty.TIER, "difficulty: ниже минимума -> TIER")
+	_check(Difficulty.sanitize_unlocked(-100) == Difficulty.TIER, "difficulty: отрицательное -> TIER")
+	_check(Difficulty.sanitize_unlocked(9999) == Difficulty.MAX_LEVEL, "difficulty: выше максимума -> MAX_LEVEL")
+	_check(Difficulty.sanitize_unlocked(Difficulty.MAX_LEVEL) == Difficulty.MAX_LEVEL,
+		"difficulty: максимум остаётся максимумом")
+
+
+# Difficulty — статический синглтон (как Loadout/Layout): сохраняем/восстанавливаем состояние,
+# чтобы не повлиять на другие тесты в этом же процессе.
+func test_difficulty_tier_unlock() -> void:
+	var saved_unlocked := Difficulty.unlocked
+	var saved_level := Difficulty.level
+
+	Difficulty.unlocked = Difficulty.TIER   # свежий аккаунт: открыты только 1..TIER
+	_check(not Difficulty.record_win(1), "difficulty: победа ниже потолка не открывает новый блок")
+	_check(Difficulty.unlocked == Difficulty.TIER, "difficulty: потолок не сдвинулся после победы ниже него")
+	_check(Difficulty.record_win(Difficulty.TIER), "difficulty: победа на потолке открывает следующий блок")
+	_check(Difficulty.unlocked == Difficulty.TIER * 2, "difficulty: потолок сдвинулся ровно на TIER")
+
+	Difficulty.unlocked = Difficulty.MAX_LEVEL
+	_check(not Difficulty.record_win(Difficulty.MAX_LEVEL), "difficulty: на максимуме больше открывать нечего")
+	_check(Difficulty.unlocked == Difficulty.MAX_LEVEL, "difficulty: потолок не превышает MAX_LEVEL")
+
+	Difficulty.unlocked = Difficulty.MAX_LEVEL - Difficulty.TIER
+	_check(Difficulty.record_win(Difficulty.MAX_LEVEL - Difficulty.TIER),
+		"difficulty: последний блок тоже открывается")
+	_check(Difficulty.unlocked == Difficulty.MAX_LEVEL, "difficulty: последний блок доводит ровно до MAX_LEVEL")
+
+	Difficulty.unlocked = Difficulty.TIER * 2
+	Difficulty.set_level(999)
+	_check(Difficulty.level == Difficulty.TIER * 2,
+		"difficulty: set_level зажат текущим потолком unlocked, а не голым MAX_LEVEL")
+
+	Difficulty.unlocked = saved_unlocked
+	Difficulty.level = saved_level

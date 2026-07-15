@@ -39,6 +39,7 @@ var round_order: Array = []
 var plan_index: int = 0
 var orders := {Consts.Player.A: [], Consts.Player.B: []}
 var round_start_events: Array = []
+var _just_unlocked_difficulty := false   # победа на верхнем открытом уровне только что открыла ещё TIER
 
 # онлайн-режим
 var online := false
@@ -516,7 +517,9 @@ func _show_menu() -> void:
 	_set_panel(box)
 
 
-# Окно выбора сложности перед боем с ИИ: слайдер 1..24 + «Бой»/«Отмена».
+# Окно выбора сложности перед боем с ИИ: слайдер MIN_LEVEL..unlocked + «Бой»/«Отмена».
+# Максимум растёт блоками по Difficulty.TIER — победа на старшем открытом уровне открывает
+# следующий блок (см. _on_local_resolution_done/_check_difficulty_unlock), вплоть до MAX_LEVEL.
 func _show_difficulty_dialog() -> void:
 	var dlg := AcceptDialog.new()
 	dlg.title = "Игра против ИИ"
@@ -534,12 +537,20 @@ func _show_difficulty_dialog() -> void:
 
 	var slider := HSlider.new()
 	slider.min_value = Difficulty.MIN_LEVEL
-	slider.max_value = Difficulty.MAX_LEVEL
+	slider.max_value = Difficulty.unlocked
 	slider.step = 1
 	slider.value = Difficulty.level
 	slider.custom_minimum_size = Vector2(0, 28)
 	slider.value_changed.connect(func(v: float): lbl.text = "Сложность: %d" % int(v))
 	box.add_child(slider)
+
+	var progress := Label.new()
+	progress.add_theme_font_size_override("font_size", 14)
+	progress.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress.text = ("Открыто %d из %d — победите на верхнем уровне, чтобы открыть ещё %d" %
+		[Difficulty.unlocked, Difficulty.MAX_LEVEL, Difficulty.TIER]) if Difficulty.unlocked < Difficulty.MAX_LEVEL \
+		else "Открыты все уровни сложности"
+	box.add_child(progress)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -700,9 +711,21 @@ func _on_local_resolution_done() -> void:
 	board_view.render(state.snapshot())
 	_update_score_bars()
 	if state.winner >= 0:
+		_check_difficulty_unlock()
 		_show_victory()
 	else:
 		_local_new_round()
+
+
+# Человек всегда играет за A против бота (см. _local_begin_plan) — победа A на текущем
+# Difficulty.level, если это был верхний открытый уровень, открывает следующий блок и
+# сохраняет прогресс на сервере (переживает переустановку/смену устройства, как и отряд).
+func _check_difficulty_unlock() -> void:
+	if not (_vs_ai and state.winner == Consts.Player.A):
+		return
+	_just_unlocked_difficulty = Difficulty.record_win(Difficulty.level)
+	if _just_unlocked_difficulty:
+		Net.save_difficulty_unlocked(Difficulty.unlocked)
 
 
 # ============================================================ аутентификация
@@ -750,9 +773,10 @@ func _show_login_panel(error_text: String = "", show_cancel: bool = false) -> vo
 	_set_panel(lp)
 
 
-func _on_auth_ok(login: String, token: String, _rating: int, loadout: Array) -> void:
+func _on_auth_ok(login: String, token: String, _rating: int, loadout: Array, difficulty_unlocked: int) -> void:
 	Account.save_session(login, token)
 	Loadout.set_team(Loadout.sanitize_team_net(loadout))   # сервер уже прислал сохранённый (или дефолтный) отряд
+	Difficulty.set_unlocked(difficulty_unlocked)
 	_current_login = login
 	_authed_connection = true
 	if _auto:
@@ -880,6 +904,13 @@ func _show_victory() -> void:
 	s.text = "Счёт  A %d : %d B" % [state.score[Consts.Player.A], state.score[Consts.Player.B]]
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(s)
+	if _just_unlocked_difficulty:
+		_just_unlocked_difficulty = false
+		var u := Label.new()
+		u.text = "Открыт новый уровень сложности: до %d!" % Difficulty.unlocked
+		u.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		u.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+		box.add_child(u)
 	var btn := Button.new()
 	btn.text = "В меню"
 	btn.custom_minimum_size = Vector2(0, 46)

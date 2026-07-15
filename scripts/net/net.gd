@@ -13,9 +13,10 @@ signal version_mismatch(server_version: int, client_version: int)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
 signal opponent_gone
-signal auth_ok(login: String, token: String, rating: int, loadout: Array)
+signal auth_ok(login: String, token: String, rating: int, loadout: Array, difficulty_unlocked: int)
 signal auth_failed(reason: String)
 signal loadout_saved
+signal difficulty_saved
 
 const DEFAULT_PORT := 8910
 const DB_PATH := "user://warmarked.db"
@@ -118,6 +119,10 @@ func save_loadout(team_net: Array) -> void:
 	rpc_id(1, "req_save_loadout", team_net)
 
 
+func save_difficulty_unlocked(unlocked: int) -> void:
+	rpc_id(1, "req_save_difficulty", unlocked)
+
+
 func send_orders(round_num: int, orders: Array) -> void:
 	rpc_id(1, "submit_orders", round_num, NetProtocol.orders_to_data(orders))
 
@@ -175,7 +180,7 @@ func _respond_auth(sender: int, res: Dictionary) -> void:
 	if res.get("ok", false):
 		_peer_user[sender] = {"user_id": res["user_id"], "login": res["login"]}
 		rpc_id(sender, "auth_ok_rpc", String(res["login"]), String(res["token"]), int(res["rating"]),
-			res.get("loadout", []))
+			res.get("loadout", []), int(res.get("difficulty_unlocked", Difficulty.TIER)))
 	else:
 		rpc_id(sender, "auth_failed_rpc", String(res.get("error", "unknown")))
 
@@ -190,6 +195,18 @@ func req_save_loadout(team_net: Variant = []) -> void:
 	var user_id: int = _peer_user[sender]["user_id"]
 	player_db.save_loadout(user_id, Loadout.canon_team_net(team_net))
 	rpc_id(sender, "loadout_saved_rpc")
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_save_difficulty(unlocked: Variant = 0) -> void:
+	if not is_server:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if not _peer_user.has(sender):
+		return   # анонимный пир — сохранять некому
+	var user_id: int = _peer_user[sender]["user_id"]
+	player_db.save_difficulty_unlocked(user_id, Difficulty.sanitize_unlocked(unlocked))
+	rpc_id(sender, "difficulty_saved_rpc")
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -302,8 +319,8 @@ func _end_match(mid: int) -> void:
 # ============================================================ RPC: сервер → клиент
 
 @rpc("authority", "call_remote", "reliable")
-func auth_ok_rpc(login: String, token: String, rating: int, loadout: Array) -> void:
-	auth_ok.emit(login, token, rating, loadout)
+func auth_ok_rpc(login: String, token: String, rating: int, loadout: Array, difficulty_unlocked: int) -> void:
+	auth_ok.emit(login, token, rating, loadout, difficulty_unlocked)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -314,6 +331,11 @@ func auth_failed_rpc(reason: String) -> void:
 @rpc("authority", "call_remote", "reliable")
 func loadout_saved_rpc() -> void:
 	loadout_saved.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func difficulty_saved_rpc() -> void:
+	difficulty_saved.emit()
 
 
 @rpc("authority", "call_remote", "reliable")

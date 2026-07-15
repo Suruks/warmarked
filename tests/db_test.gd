@@ -22,6 +22,9 @@ func _initialize() -> void:
 	test_logout_revokes_session()
 	test_loadout_defaults_for_fresh_account()
 	test_loadout_round_trip()
+	test_difficulty_defaults_for_fresh_account()
+	test_difficulty_round_trip()
+	test_loadout_and_difficulty_settings_coexist()
 	_wipe_db_file()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -136,3 +139,47 @@ func test_loadout_round_trip() -> void:
 	var reopened := db2.resume_session(relog["token"])
 	_check(reopened["loadout"] == custom_team, "отряд переживает переоткрытие БД")
 	db2.close()
+
+
+func test_difficulty_defaults_for_fresh_account() -> void:
+	var db := _fresh_db()
+	var reg := db.register("henry", "pw")
+	_check(db.load_difficulty_unlocked(reg["user_id"]) == Difficulty.TIER,
+		"свежий аккаунт: открыт только первый блок сложности (TIER)")
+	_check(reg["difficulty_unlocked"] == Difficulty.TIER,
+		"register() уже отдаёт тот же прогресс, что и load_difficulty_unlocked")
+	db.close()
+
+
+func test_difficulty_round_trip() -> void:
+	var db := _fresh_db()
+	var reg := db.register("iris", "pw")
+	var target := Difficulty.TIER * 3
+	db.save_difficulty_unlocked(reg["user_id"], target)
+	_check(db.load_difficulty_unlocked(reg["user_id"]) == target, "прогресс сложности читается обратно без изменений")
+	# запись не кратна TIER/вне диапазона — при чтении санируется, даже если записана напрямую
+	db.save_difficulty_unlocked(reg["user_id"], 23)
+	_check(db.load_difficulty_unlocked(reg["user_id"]) == 20,
+		"чтение санирует прогресс до границы TIER, даже если в БД что-то нештатное")
+	db.close()
+
+
+# Регрессия: save_loadout/save_difficulty_unlocked живут в одном JSON-блобе player_settings.data —
+# если бы каждый писал колонку целиком (а не read-modify-write), один затирал бы другого.
+func test_loadout_and_difficulty_settings_coexist() -> void:
+	var db := _fresh_db()
+	var reg := db.register("jack", "pw")
+	var custom_team: Array = Loadout.canon_team_net(Loadout.random_team())
+	db.save_loadout(reg["user_id"], custom_team)
+	db.save_difficulty_unlocked(reg["user_id"], Difficulty.TIER * 4)
+	_check(db.load_loadout(reg["user_id"]) == custom_team, "сложность после себя не затёрла отряд")
+	_check(db.load_difficulty_unlocked(reg["user_id"]) == Difficulty.TIER * 4,
+		"отряд был записан первым — сложность записалась поверх, не потерявшись")
+	# запись в обратном порядке — тоже не должна терять другую настройку
+	var other_team: Array = Loadout.canon_team_net(Loadout.random_team())
+	db.save_difficulty_unlocked(reg["user_id"], Difficulty.TIER * 2)
+	db.save_loadout(reg["user_id"], other_team)
+	_check(db.load_difficulty_unlocked(reg["user_id"]) == Difficulty.TIER * 2,
+		"отряд после себя не затёр сложность")
+	_check(db.load_loadout(reg["user_id"]) == other_team, "новый отряд сохранился")
+	db.close()
