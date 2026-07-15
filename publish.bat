@@ -78,18 +78,27 @@ if errorlevel 1 (
 	echo [FAIL] scp failed - old server version is intact.
 	goto :fail
 )
-echo --- swap, import, restart ---
-ssh %HOST% "pkill -9 -f 'Godot.*--import'; sleep 1; rm -rf %REMOTE%/scripts %REMOTE%/addons && mv %REMOTE%/scripts_new %REMOTE%/scripts && mv %REMOTE%/addons_new %REMOTE%/addons && mv %REMOTE%/project.godot.new %REMOTE%/project.godot && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
+scp deploy_remote.sh %HOST%:%REMOTE%/deploy_remote.sh
 if errorlevel 1 (
 	echo.
-	echo [FAIL] Server step failed - see output above.
+	echo [FAIL] scp failed - old server version is intact.
+	goto :fail
+)
+rem Delegated to deploy_remote.sh instead of one giant quoted multi-command ssh string -
+rem that pattern silently broke once the command got long/complex enough (systemctl
+rem stop/start stopped taking effect while every step still reported success).
+echo --- run deploy_remote.sh on the server ---
+ssh %HOST% "bash %REMOTE%/deploy_remote.sh"
+if errorlevel 1 (
+	echo.
+	echo [FAIL] Remote deploy script failed - see output above ^(server may still be on the OLD version^).
 	goto :fail
 )
 
 echo.
 echo ============================================================
 echo   DONE: web + server updated.
-echo   Check above: [OK] build, push, and "active" + port 8910.
+echo   Check above: [OK] build, push, and "[OK] restarted: PID X -^> Y" + port 8910.
 echo ============================================================
 goto :end
 

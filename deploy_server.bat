@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo === [3/4] Copy addons + project.godot (staging) ===
+echo === [3/4] Copy addons + project.godot + remote deploy script (staging) ===
 scp -r addons %HOST%:%REMOTE%/addons_new
 if errorlevel 1 (
 	echo.
@@ -43,11 +43,30 @@ if errorlevel 1 (
 	pause
 	exit /b 1
 )
+scp deploy_remote.sh %HOST%:%REMOTE%/deploy_remote.sh
+if errorlevel 1 (
+	echo.
+	echo [FAIL] scp failed - old server version is intact.
+	pause
+	exit /b 1
+)
+
+rem === [4/4] Swap, import resources, restart ===
+rem Delegated to deploy_remote.sh (checked into the repo, always in sync with this .bat)
+rem instead of one giant quoted multi-command ssh string - that pattern silently broke
+rem once the command got long/complex enough (systemctl stop/start stopped taking effect
+rem while every step still reported success). One plain "bash script.sh" call has nothing
+rem for cmd.exe/ssh.exe quoting to mangle.
+echo.
+echo === [4/4] Run deploy_remote.sh on the server ===
+ssh %HOST% "bash %REMOTE%/deploy_remote.sh"
+if errorlevel 1 (
+	echo.
+	echo [FAIL] Remote deploy script failed - see output above ^(server may still be on the OLD version^).
+	pause
+	exit /b 1
+)
 
 echo.
-echo === [4/4] Swap, import resources, restart ===
-ssh %HOST% "pkill -9 -f 'Godot.*--import'; sleep 1; rm -rf %REMOTE%/scripts %REMOTE%/addons && mv %REMOTE%/scripts_new %REMOTE%/scripts && mv %REMOTE%/addons_new %REMOTE%/addons && mv %REMOTE%/project.godot.new %REMOTE%/project.godot && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
-
-echo.
-echo === Done. Check above: active + line with port 8910 ===
+echo === Done. Check above: [OK] restarted: PID X -^> Y, and the port 8910 line ===
 pause
