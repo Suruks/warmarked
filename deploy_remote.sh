@@ -24,7 +24,10 @@ mv "$REMOTE/project.godot.new" "$REMOTE/project.godot"
 echo "--- restart warmarked.service ---"
 OLD_PID="$(systemctl show warmarked -p MainPID --value)"
 systemctl stop warmarked
-"$RGODOT" --headless --path "$REMOTE" --import
+# Импорт под timeout и с `|| echo`, чтобы даже зависший/упавший --import НЕ оставил сервер
+# остановленным: при set -e голый сбой прервал бы скрипт до systemctl start (сервис лежит),
+# а зависший --import висел бы вечно. Так start выполняется в любом случае.
+timeout 180 "$RGODOT" --headless --path "$REMOTE" --import || echo "[warn] --import failed or timed out - starting server anyway"
 systemctl start warmarked
 sleep 4
 
