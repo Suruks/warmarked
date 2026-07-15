@@ -6,8 +6,10 @@ extends VBoxContainer
 ## Скиллы перетаскиваются из пула в слоты и обратно (drag&drop). Класс тройки определяется
 ## автоматически по первому положенному классовому скиллу; чужой класс в занятую тройку не кладётся.
 ## Один и тот же скилл можно давать разным тройкам. На диск не пишем — выбор применяется по «Сохранить».
+## Отряд сохраняется на сервере за аккаунтом (main.gd слушает team_saved) — «Назад» его не трогает.
 
 signal closed
+signal team_saved
 
 const N_TRIOS := 3
 const SLOT_SEP := 4      # отступ между слотами внутри тройки
@@ -389,4 +391,5 @@ func _on_save() -> void:
 		team.append({"type": _trio_class_of(t), "skills": (_trio_skills[t] as Array).duplicate()})
 	Loadout.set_team(team)
 	Loadout.set_random_battle(_rolled_random)   # случайный отряд → сопернику тоже ролится свой
+	team_saved.emit()
 	closed.emit()

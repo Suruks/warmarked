@@ -581,6 +581,7 @@ func _show_collection() -> void:
 	cp.offset_top = Layout.SCORE_TOP_Y
 	cp.offset_bottom = -Layout.PANEL_BOTTOM_MARGIN
 	add_child(cp)
+	cp.team_saved.connect(func(): Net.save_loadout(Loadout.team_net()))
 	cp.closed.connect(func():
 		cp.queue_free()
 		_show_menu())
@@ -749,8 +750,9 @@ func _show_login_panel(error_text: String = "", show_cancel: bool = false) -> vo
 	_set_panel(lp)
 
 
-func _on_auth_ok(login: String, token: String, _rating: int) -> void:
+func _on_auth_ok(login: String, token: String, _rating: int, loadout: Array) -> void:
 	Account.save_session(login, token)
+	Loadout.set_team(Loadout.sanitize_team_net(loadout))   # сервер уже прислал сохранённый (или дефолтный) отряд
 	_current_login = login
 	_authed_connection = true
 	if _auto:

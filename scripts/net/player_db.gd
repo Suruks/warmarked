@@ -35,7 +35,8 @@ func register(login: String, password: String) -> Dictionary:
 		[login, pass_hash, salt, now])
 	var user_id: int = _db.last_insert_rowid
 	_db.query_with_bindings("INSERT INTO player_settings (user_id, data) VALUES (?, '{}');", [user_id])
-	return {"ok": true, "user_id": user_id, "login": login, "rating": 1000, "token": create_session(user_id)}
+	return {"ok": true, "user_id": user_id, "login": login, "rating": 1000, "token": create_session(user_id),
+		"loadout": load_loadout(user_id)}
 
 
 func authenticate(login: String, password: String) -> Dictionary:
@@ -45,7 +46,7 @@ func authenticate(login: String, password: String) -> Dictionary:
 	if _hash_password(password, row["salt"]) != row["pass_hash"]:
 		return {"ok": false, "error": "wrong_password"}
 	return {"ok": true, "user_id": row["id"], "login": row["login"], "rating": row["rating"],
-		"token": create_session(row["id"])}
+		"token": create_session(row["id"]), "loadout": load_loadout(row["id"])}
 
 
 ## Выдаёт новый непрозрачный токен «запомнить меня» для user_id (клиент хранит его
@@ -67,11 +68,51 @@ func resume_session(token: String) -> Dictionary:
 	if rows.is_empty():
 		return {"ok": false, "error": "invalid_session"}
 	var row: Dictionary = rows[0]
-	return {"ok": true, "user_id": row["id"], "login": row["login"], "rating": row["rating"], "token": token}
+	return {"ok": true, "user_id": row["id"], "login": row["login"], "rating": row["rating"], "token": token,
+		"loadout": load_loadout(row["id"])}
 
 
 func logout(token: String) -> void:
 	_db.query_with_bindings("DELETE FROM sessions WHERE token = ?;", [token])
+
+
+## Сохраняет текущий отряд игрока (team_net-массив, см. Loadout.canon_team_net) —
+## переживает переустановку клиента, следует за аккаунтом, а не за диском.
+func save_loadout(user_id: int, team_net: Array) -> void:
+	_db.query_with_bindings(
+		"UPDATE player_settings SET data = ? WHERE user_id = ?;",
+		[JSON.stringify({"loadout": team_net}), user_id])
+
+
+## Санируем и здесь (не только при записи в save_loadout) — БД тоже внешний источник данных,
+## поэтому свежий аккаунт (ещё нет сохранённого отряда) получает готовый дефолтный team_net,
+## а не пустышку, которую каждому вызывающему пришлось бы досанировать самому.
+func load_loadout(user_id: int) -> Array:
+	_db.query_with_bindings("SELECT data FROM player_settings WHERE user_id = ?;", [user_id])
+	var rows: Array = _db.query_result
+	if rows.is_empty():
+		return Loadout.canon_team_net([])
+	var parsed: Variant = JSON.parse_string(String(rows[0]["data"]))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return Loadout.canon_team_net([])
+	return Loadout.canon_team_net(_ints_from_json(parsed.get("loadout")))
+
+
+## JSON не различает int/float по значению — приводим числа к int до санитайзера, иначе
+## Loadout._sanitize_slot (строгий typeof(...) == TYPE_INT) молча отбросит валидный сохранённый
+## отряд как «битый по типу» и подставит дефолт.
+func _ints_from_json(raw: Variant) -> Array:
+	var out: Array = []
+	if typeof(raw) != TYPE_ARRAY:
+		return out
+	for row in raw:
+		if typeof(row) != TYPE_ARRAY:
+			continue
+		var r: Array = []
+		for v in row:
+			r.append(int(v) if (typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT) else v)
+		out.append(r)
+	return out
 
 
 func _find_user(login: String) -> Dictionary:

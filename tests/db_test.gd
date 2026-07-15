@@ -20,6 +20,8 @@ func _initialize() -> void:
 	test_session_resume()
 	test_invalid_session_rejected()
 	test_logout_revokes_session()
+	test_loadout_defaults_for_fresh_account()
+	test_loadout_round_trip()
 	_wipe_db_file()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -107,3 +109,30 @@ func test_logout_revokes_session() -> void:
 	var res := db.resume_session(reg["token"])
 	_check(res["ok"] == false and res["error"] == "invalid_session", "после logout токен больше не работает")
 	db.close()
+
+
+func test_loadout_defaults_for_fresh_account() -> void:
+	var db := _fresh_db()
+	var reg := db.register("frank", "pw")
+	var loaded: Array = db.load_loadout(reg["user_id"])
+	_check(loaded == Loadout.default_team_net(), "свежий аккаунт получает дефолтный отряд, а не пустышку")
+	_check(reg["loadout"] == loaded, "register() уже отдаёт тот же отряд, что и load_loadout")
+	db.close()
+
+
+func test_loadout_round_trip() -> void:
+	var db := _fresh_db()
+	var reg := db.register("grace", "pw")
+	var custom_team: Array = Loadout.canon_team_net(Loadout.random_team())
+	db.save_loadout(reg["user_id"], custom_team)
+	var loaded: Array = db.load_loadout(reg["user_id"])
+	_check(loaded == custom_team, "сохранённый отряд читается обратно без изменений (в т.ч. типы после JSON)")
+	var relog := db.authenticate("grace", "pw")
+	_check(relog["loadout"] == custom_team, "authenticate() тоже отдаёт сохранённый отряд")
+	db.close()
+	# переоткрытие того же файла БД — отряд должен пережить закрытие соединения
+	var db2 := PlayerDB.new()
+	db2.open(DB_PATH)
+	var reopened := db2.resume_session(relog["token"])
+	_check(reopened["loadout"] == custom_team, "отряд переживает переоткрытие БД")
+	db2.close()

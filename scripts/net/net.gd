@@ -13,8 +13,9 @@ signal version_mismatch(server_version: int, client_version: int)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
 signal opponent_gone
-signal auth_ok(login: String, token: String, rating: int)
+signal auth_ok(login: String, token: String, rating: int, loadout: Array)
 signal auth_failed(reason: String)
+signal loadout_saved
 
 const DEFAULT_PORT := 8910
 const DB_PATH := "user://warmarked.db"
@@ -113,6 +114,10 @@ func join_queue() -> void:
 	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.team_net())
 
 
+func save_loadout(team_net: Array) -> void:
+	rpc_id(1, "req_save_loadout", team_net)
+
+
 func send_orders(round_num: int, orders: Array) -> void:
 	rpc_id(1, "submit_orders", round_num, NetProtocol.orders_to_data(orders))
 
@@ -169,9 +174,22 @@ func req_resume_session(token: String = "") -> void:
 func _respond_auth(sender: int, res: Dictionary) -> void:
 	if res.get("ok", false):
 		_peer_user[sender] = {"user_id": res["user_id"], "login": res["login"]}
-		rpc_id(sender, "auth_ok_rpc", String(res["login"]), String(res["token"]), int(res["rating"]))
+		rpc_id(sender, "auth_ok_rpc", String(res["login"]), String(res["token"]), int(res["rating"]),
+			res.get("loadout", []))
 	else:
 		rpc_id(sender, "auth_failed_rpc", String(res.get("error", "unknown")))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func req_save_loadout(team_net: Variant = []) -> void:
+	if not is_server:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if not _peer_user.has(sender):
+		return   # анонимный пир — сохранять некому
+	var user_id: int = _peer_user[sender]["user_id"]
+	player_db.save_loadout(user_id, Loadout.canon_team_net(team_net))
+	rpc_id(sender, "loadout_saved_rpc")
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -284,13 +302,18 @@ func _end_match(mid: int) -> void:
 # ============================================================ RPC: сервер → клиент
 
 @rpc("authority", "call_remote", "reliable")
-func auth_ok_rpc(login: String, token: String, rating: int) -> void:
-	auth_ok.emit(login, token, rating)
+func auth_ok_rpc(login: String, token: String, rating: int, loadout: Array) -> void:
+	auth_ok.emit(login, token, rating, loadout)
 
 
 @rpc("authority", "call_remote", "reliable")
 func auth_failed_rpc(reason: String) -> void:
 	auth_failed.emit(reason)
+
+
+@rpc("authority", "call_remote", "reliable")
+func loadout_saved_rpc() -> void:
+	loadout_saved.emit()
 
 
 @rpc("authority", "call_remote", "reliable")
