@@ -57,7 +57,7 @@ echo ============================================================
 echo   [3/3] UPDATE server on VPS
 echo ============================================================
 echo --- clean staging ---
-ssh %HOST% "rm -rf %REMOTE%/scripts_new"
+ssh %HOST% "rm -rf %REMOTE%/scripts_new %REMOTE%/addons_new %REMOTE%/project.godot.new"
 echo --- copy scripts ---
 scp -r scripts %HOST%:%REMOTE%/scripts_new
 if errorlevel 1 (
@@ -65,8 +65,21 @@ if errorlevel 1 (
 	echo [FAIL] scp failed - old server version is intact.
 	goto :fail
 )
+echo --- copy addons + project.godot (needed for the godot-sqlite account system) ---
+scp -r addons %HOST%:%REMOTE%/addons_new
+if errorlevel 1 (
+	echo.
+	echo [FAIL] scp failed - old server version is intact.
+	goto :fail
+)
+scp project.godot %HOST%:%REMOTE%/project.godot.new
+if errorlevel 1 (
+	echo.
+	echo [FAIL] scp failed - old server version is intact.
+	goto :fail
+)
 echo --- swap, import, restart ---
-ssh %HOST% "pkill -9 -f 'Godot.*--import'; sleep 1; rm -rf %REMOTE%/scripts && mv %REMOTE%/scripts_new %REMOTE%/scripts && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
+ssh %HOST% "pkill -9 -f 'Godot.*--import'; sleep 1; rm -rf %REMOTE%/scripts %REMOTE%/addons && mv %REMOTE%/scripts_new %REMOTE%/scripts && mv %REMOTE%/addons_new %REMOTE%/addons && mv %REMOTE%/project.godot.new %REMOTE%/project.godot && systemctl stop warmarked && %RGODOT% --headless --path %REMOTE% --import && systemctl start warmarked && sleep 4 && echo --- STATUS --- && systemctl is-active warmarked && { ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'; }"
 if errorlevel 1 (
 	echo.
 	echo [FAIL] Server step failed - see output above.
