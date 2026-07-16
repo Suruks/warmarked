@@ -163,7 +163,7 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 
 # Отталкивание на несколько клеток в направлении dir (для Дуновения ветра). Каждый шаг:
 # свободно -> входим (срабатывают капканы/засады/кровотечение); упор в стену/край/юнита ->
-# COLLISION_DMG и остановка. Обездвиживание/смерть в пути прерывают толчок.
+# остановка без урона. Обездвиживание/смерть в пути прерывают толчок.
 func _shove(state: MatchState, unit: Unit, dir: Vector2i, cells: int, src_player: int, events: Array) -> void:
 	if dir == Vector2i.ZERO:
 		return
@@ -172,9 +172,7 @@ func _shove(state: MatchState, unit: Unit, dir: Vector2i, cells: int, src_player
 		var occupant := state.unit_at(dest)
 		if not state.board.is_passable(dest) or occupant != null:
 			_push(events, state, Consts.EventType.COLLISION,
-				"%s впечатан в препятствие -> %d урона" % [unit.full_name(), Consts.COLLISION_DMG],
-				{"victim": unit.id})
-			_deal_damage(state, unit, Consts.COLLISION_DMG, src_player, events, "столкновение")
+				"%s упирается в препятствие -> толчок остановлен" % unit.full_name())
 			return
 		_enter(state, unit, dest, events, src_player, Consts.EventType.KNOCKBACK,
 			"%s отброшен на (%d,%d)" % [unit.full_name(), dest.x, dest.y])
@@ -182,7 +180,7 @@ func _shove(state: MatchState, unit: Unit, dir: Vector2i, cells: int, src_player
 			return
 
 
-# Толчок на 1 клетку в направлении dir; в препятствие/край/юнит -> столкновение (урон)
+# Толчок на 1 клетку в направлении dir; в препятствие/край/юнит -> толчок гасится без урона
 func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, events: Array) -> void:
 	if dir == Vector2i.ZERO:
 		return
@@ -190,9 +188,7 @@ func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, e
 	var occupant := state.unit_at(dest)
 	if not state.board.is_passable(dest) or occupant != null:
 		_push(events, state, Consts.EventType.COLLISION,
-			"%s впечатан в препятствие -> %d урона" % [unit.full_name(), Consts.COLLISION_DMG],
-			{"victim": unit.id})
-		_deal_damage(state, unit, Consts.COLLISION_DMG, src_player, events, "столкновение")
+			"%s упирается в препятствие -> отброс не проходит" % unit.full_name())
 	else:
 		_enter(state, unit, dest, events, src_player, Consts.EventType.KNOCKBACK,
 			"%s отброшен на (%d,%d)" % [unit.full_name(), dest.x, dest.y])
@@ -207,7 +203,7 @@ func _dmg(unit: Unit, skill: int, base: int) -> int:
 
 
 # src_unit — юнит-источник урона (нужен Осколкам для ответки); для средовых источников
-# (столкновение о стену) — null. retaliate=false у самой ответки, чтобы шипы не зациклились.
+# (капкан) — null. retaliate=false у самой ответки, чтобы шипы не зациклились.
 func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int, events: Array, label: String,
 		src_unit: Unit = null, retaliate: bool = true) -> void:
 	var dmg := amount

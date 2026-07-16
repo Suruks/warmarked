@@ -25,6 +25,16 @@ func _initialize() -> void:
 	test_difficulty_defaults_for_fresh_account()
 	test_difficulty_round_trip()
 	test_loadout_and_difficulty_settings_coexist()
+	test_ai_record_defaults_for_fresh_account()
+	test_ai_record_only_personal_best_counts()
+	test_ai_record_stores_loadout_privately()
+	test_leaderboard_orders_by_level_then_time()
+	test_apply_ai_win_moves_record_and_progress()
+	test_apply_ai_win_rejects_locked_level()
+	test_settings_defaults_for_fresh_account()
+	test_settings_round_trip()
+	test_settings_sanitized_on_write()
+	test_settings_coexist_with_loadout_and_progress()
 	_wipe_db_file()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
@@ -182,4 +192,196 @@ func test_loadout_and_difficulty_settings_coexist() -> void:
 	_check(db.load_difficulty_unlocked(reg["user_id"]) == Difficulty.TIER * 2,
 		"отряд после себя не затёр сложность")
 	_check(db.load_loadout(reg["user_id"]) == other_team, "новый отряд сохранился")
+	db.close()
+
+
+func test_ai_record_defaults_for_fresh_account() -> void:
+	var db := _fresh_db()
+	var reg := db.register("kate", "pw")
+	_check(db.load_ai_best(reg["user_id"]) == 0, "свежий аккаунт: рекорда против ИИ нет (0)")
+	_check(reg["ai_best"] == 0, "register() уже отдаёт тот же рекорд, что и load_ai_best")
+	_check(db.leaderboard().is_empty(), "без побед лидерборд пуст")
+	db.close()
+
+
+# Лидерборд двигают ЛИЧНЫЕ РЕКОРДЫ: победа на уровне не выше уже взятого его не трогает.
+func test_ai_record_only_personal_best_counts() -> void:
+	var db := _fresh_db()
+	var reg := db.register("liam", "pw")
+	var uid: int = reg["user_id"]
+	var team: Array = Loadout.canon_team_net(Loadout.random_team())
+	_check(db.record_ai_win(uid, 7, team) == true, "первая победа — рекорд")
+	_check(db.load_ai_best(uid) == 7, "рекорд записан [%d]" % db.load_ai_best(uid))
+	_check(db.record_ai_win(uid, 5, team) == false, "победа на уровне ниже рекорда — не рекорд")
+	_check(db.record_ai_win(uid, 7, team) == false, "повтор того же уровня — не рекорд")
+	_check(db.load_ai_best(uid) == 7, "рекорд не понизился [%d]" % db.load_ai_best(uid))
+	_check(db.record_ai_win(uid, 9, team) == true, "победа выше рекорда — новый рекорд")
+	_check(db.load_ai_best(uid) == 9, "рекорд поднялся до 9 [%d]" % db.load_ai_best(uid))
+	# мусорный уровень от враждебного клиента не должен ни пролезать в таблицу, ни ронять сервер
+	_check(db.record_ai_win(uid, 999, team) == false, "уровень выше MAX_LEVEL не принимается")
+	_check(db.record_ai_win(uid, 0, team) == false, "уровень ниже MIN_LEVEL не принимается")
+	_check(db.load_ai_best(uid) == 9, "мусорные уровни рекорд не изменили [%d]" % db.load_ai_best(uid))
+	# рекорд переживает переоткрытие БД
+	var relog := db.authenticate("liam", "pw")
+	_check(relog["ai_best"] == 9, "authenticate() отдаёт сохранённый рекорд")
+	db.close()
+	var db2 := PlayerDB.new()
+	db2.open(DB_PATH)
+	_check(db2.resume_session(relog["token"])["ai_best"] == 9, "рекорд переживает переоткрытие БД")
+	db2.close()
+
+
+# Сборка пишется вместе с рекордом, но остаётся приватной: в лидерборде её нет.
+func test_ai_record_stores_loadout_privately() -> void:
+	var db := _fresh_db()
+	var reg := db.register("mona", "pw")
+	var uid: int = reg["user_id"]
+	var team: Array = Loadout.canon_team_net(Loadout.random_team())
+	db.record_ai_win(uid, 4, team)
+	_check(db.load_ai_record_loadout(uid) == team, "сборка рекорда читается обратно без изменений")
+	# новый рекорд — новая сборка; старая не остаётся висеть
+	var team2: Array = Loadout.canon_team_net(Loadout.random_team())
+	db.record_ai_win(uid, 6, team2)
+	_check(db.load_ai_record_loadout(uid) == team2, "новый рекорд перезаписал сборку")
+	# победа НЕ рекордом сборку не трогает — в БД остаётся та, которой рекорд и взят
+	db.record_ai_win(uid, 2, Loadout.canon_team_net(Loadout.random_team()))
+	_check(db.load_ai_record_loadout(uid) == team2, "не-рекорд сборку не перезаписал")
+	var lb: Array = db.leaderboard()
+	_check(lb.size() == 1 and lb[0]["login"] == "mona" and lb[0]["level"] == 6,
+		"лидерборд отдаёт логин и уровень")
+	_check(not lb[0].has("loadout"), "лидерборд НЕ отдаёт сборку игрока (приватные данные)")
+	db.close()
+
+
+func test_leaderboard_orders_by_level_then_time() -> void:
+	var db := _fresh_db()
+	var team: Array = Loadout.canon_team_net(Loadout.random_team())
+	var nick := db.register("nick", "pw")
+	var olga := db.register("olga", "pw")
+	var pete := db.register("pete", "pw")
+	db.record_ai_win(nick["user_id"], 12, team)
+	db.record_ai_win(olga["user_id"], 30, team)
+	db.record_ai_win(pete["user_id"], 12, team)
+	var lb: Array = db.leaderboard()
+	_check(lb.size() == 3, "в лидерборде все три игрока [%d]" % lb.size())
+	_check(lb[0]["login"] == "olga" and lb[0]["level"] == 30, "лучший уровень — первым")
+	# оба рекорда на 12 поставлены в одну секунду — порядок разрешает user_id, и он устойчив
+	_check(lb[1]["login"] == "nick" and lb[2]["login"] == "pete",
+		"равный уровень: порядок устойчивый (кто раньше — выше)")
+	_check(db.leaderboard() == lb, "повторный запрос даёт ту же таблицу")
+	# сколько строк отдавать — решает сервер; клиенту не нужен весь список
+	_check(db.leaderboard(2).size() == 2, "limit ограничивает длину таблицы")
+	db.close()
+
+
+# Победа над ИИ глазами аккаунта: сервер зовёт apply_ai_win по СВОЕМУ резолву матча, и она одна
+# решает и рекорд, и прогресс открытых уровней (см. Net._finish_ai_match).
+func test_apply_ai_win_moves_record_and_progress() -> void:
+	var db := _fresh_db()
+	var reg := db.register("quinn", "pw")
+	var uid: int = reg["user_id"]
+	var team: Array = Loadout.canon_team_net(Loadout.random_team())
+	var T := Difficulty.TIER
+
+	# победа НЕ на потолке: рекорд ставит, новый блок не открывает
+	var r1 := db.apply_ai_win(uid, 2, team)
+	_check(r1["record"] == true and r1["unlock"] == false, "победа ниже потолка: рекорд да, блок нет")
+	_check(db.load_ai_best(uid) == 2, "рекорд записан [%d]" % db.load_ai_best(uid))
+	_check(db.load_difficulty_unlocked(uid) == T, "прогресс не сдвинулся [%d]" % db.load_difficulty_unlocked(uid))
+
+	# победа на потолке: и рекорд, и следующий блок
+	var r2 := db.apply_ai_win(uid, T, team)
+	_check(r2["record"] == true and r2["unlock"] == true, "победа на потолке: и рекорд, и новый блок")
+	_check(db.load_difficulty_unlocked(uid) == T * 2, "открылся следующий блок [%d]" % db.load_difficulty_unlocked(uid))
+	_check(db.load_ai_best(uid) == T, "рекорд поднялся до потолка [%d]" % db.load_ai_best(uid))
+
+	# повтор той же победы: ни рекорда, ни прогресса — фарм одного уровня ничего не даёт
+	var r3 := db.apply_ai_win(uid, T, team)
+	_check(r3["record"] == false and r3["unlock"] == false, "повтор той же победы ничего не меняет")
+	_check(db.load_difficulty_unlocked(uid) == T * 2, "прогресс не убежал вперёд от повторов")
+
+	# победа ниже уже взятого рекорда: рекорд не понижается
+	db.apply_ai_win(uid, 1, team)
+	_check(db.load_ai_best(uid) == T, "победа на первом уровне рекорд не понизила [%d]" % db.load_ai_best(uid))
+	db.close()
+
+
+# Ключевая защита: победа на уровне, который аккаунту НЕ открыт, не даёт ничего. Сервер такой
+# бой и не начнёт (Difficulty.playable в req_start_ai_match), но правило продублировано в записи —
+# иначе дыра в гейте сразу становилась бы рекордом на вершине лидерборда.
+func test_apply_ai_win_rejects_locked_level() -> void:
+	var db := _fresh_db()
+	var reg := db.register("rita", "pw")
+	var uid: int = reg["user_id"]
+	var team: Array = Loadout.canon_team_net(Loadout.random_team())
+
+	var res := db.apply_ai_win(uid, Difficulty.MAX_LEVEL, team)
+	_check(res["record"] == false and res["unlock"] == false, "победа на закрытом уровне не даёт ничего")
+	_check(db.load_ai_best(uid) == 0, "рекорд не записан [%d]" % db.load_ai_best(uid))
+	_check(db.load_difficulty_unlocked(uid) == Difficulty.TIER, "прогресс не сдвинулся")
+	_check(db.leaderboard().is_empty(), "в лидерборд игрок не попал")
+
+	var junk := db.apply_ai_win(uid, "50", team)
+	_check(junk["record"] == false and junk["unlock"] == false, "победа с уровнем-строкой не даёт ничего")
+	_check(db.load_difficulty_unlocked(uid) == Difficulty.TIER, "мусорный уровень прогресс не сдвинул")
+	db.close()
+
+
+func test_settings_defaults_for_fresh_account() -> void:
+	var db := _fresh_db()
+	var reg := db.register("sam", "pw")
+	var s: Dictionary = db.load_settings(reg["user_id"])
+	_check(s["vol"] == Settings.VOLUME_DEFAULT and s["imp"] == false,
+		"свежий аккаунт: настройки по умолчанию, а не пустышка")
+	_check(reg["settings"] == s, "register() уже отдаёт те же настройки, что и load_settings")
+	db.close()
+
+
+func test_settings_round_trip() -> void:
+	var db := _fresh_db()
+	var reg := db.register("tina", "pw")
+	var uid: int = reg["user_id"]
+	db.save_settings(uid, {"vol": 0.3, "imp": true})
+	var loaded: Dictionary = db.load_settings(uid)
+	_check(is_equal_approx(loaded["vol"], 0.3) and loaded["imp"] == true,
+		"настройки читаются обратно без изменений (в т.ч. типы после JSON)")
+	var relog := db.authenticate("tina", "pw")
+	_check(is_equal_approx(relog["settings"]["vol"], 0.3), "authenticate() отдаёт сохранённые настройки")
+	db.close()
+	# переоткрытие БД: настройки живут за аккаунтом, а не в памяти сервера
+	var db2 := PlayerDB.new()
+	db2.open(DB_PATH)
+	var reopened := db2.resume_session(relog["token"])
+	_check(is_equal_approx(reopened["settings"]["vol"], 0.3), "настройки переживают переоткрытие БД")
+	db2.close()
+
+
+# Клиенту не доверяем и здесь: мусор в пакете не должен ни лечь в БД как есть, ни уронить сервер.
+func test_settings_sanitized_on_write() -> void:
+	var db := _fresh_db()
+	var reg := db.register("umar", "pw")
+	var uid: int = reg["user_id"]
+	db.save_settings(uid, {"vol": 99.0, "imp": "да"})
+	var loaded: Dictionary = db.load_settings(uid)
+	_check(loaded["vol"] == 1.0, "громкость вне диапазона зажата при записи [%f]" % loaded["vol"])
+	_check(loaded["imp"] == false, "нештатный отладочный флаг -> выключен")
+	db.save_settings(uid, "не словарь")
+	_check(db.load_settings(uid)["vol"] == Settings.VOLUME_DEFAULT, "мусорный пакет -> дефолты, без падения")
+	db.close()
+
+
+# Регрессия: настройки лежат в том же JSON-блобе, что отряд и прогресс (player_settings.data) —
+# запись одного не должна затирать другое.
+func test_settings_coexist_with_loadout_and_progress() -> void:
+	var db := _fresh_db()
+	var reg := db.register("vera", "pw")
+	var uid: int = reg["user_id"]
+	var team: Array = Loadout.canon_team_net(Loadout.random_team())
+	db.save_loadout(uid, team)
+	db.save_difficulty_unlocked(uid, Difficulty.TIER * 3)
+	db.save_settings(uid, {"vol": 0.1, "imp": true})
+	_check(db.load_loadout(uid) == team, "настройки не затёрли отряд")
+	_check(db.load_difficulty_unlocked(uid) == Difficulty.TIER * 3, "настройки не затёрли прогресс")
+	db.save_loadout(uid, Loadout.default_team_net())
+	_check(is_equal_approx(db.load_settings(uid)["vol"], 0.1), "отряд не затёр настройки")
 	db.close()

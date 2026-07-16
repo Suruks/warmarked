@@ -77,7 +77,25 @@ func _on_button() -> void:
 		emit_signal("finished")
 
 
+# Звук события — вместе с его анимацией (см. _animate): и то, и другое — способ показать одно
+# и то же событие, поэтому живут рядом, а не в двух разных местах, которые надо держать в такт.
+func _sound_of(type: int) -> String:
+	match type:
+		Consts.EventType.MOVE, Consts.EventType.KNOCKBACK:
+			return Sfx.MOVE
+		Consts.EventType.ATTACK:
+			return Sfx.ATTACK
+		Consts.EventType.ABILITY:
+			return Sfx.MAGIC_ATTACK   # способности — это и есть «магическая атака»
+		# Физзл — штатный «промах» этой игры: приказ доехал до разрешения и не сработал (не туда,
+		# нечем, некого). Уклонение по Рефлексам — тот же промах, только удар отвели.
+		Consts.EventType.FIZZLE, Consts.EventType.REFLEX_DODGE:
+			return Sfx.MISS
+	return ""
+
+
 func _animate(e: Dictionary) -> void:
+	Sfx.play(_sound_of(e.type))
 	match e.type:
 		Consts.EventType.MOVE, Consts.EventType.KNOCKBACK:
 			if e.has("actor") and e.has("to_cell"):
@@ -99,7 +117,7 @@ func _animate(e: Dictionary) -> void:
 					await _delay(0.24)   # способность без цели (Вспышка, Засада)
 			else:
 				await _delay(0.2)
-		Consts.EventType.DAMAGE, Consts.EventType.COLLISION:
+		Consts.EventType.DAMAGE:
 			if e.has("victim"):
 				board_view.anim_damage_number(e.victim, e.get("amount", 0))
 				await board_view.anim_flash(e.victim, Color(1, 0.25, 0.25)).finished  # красная вспышка цели
@@ -135,7 +153,8 @@ func _format(e: Dictionary) -> String:
 	var col := "b6c0cf"
 	match t:
 		Consts.EventType.INFO: col = "8892a3"
-		Consts.EventType.DAMAGE, Consts.EventType.COLLISION: col = "e08a8a"
+		Consts.EventType.DAMAGE: col = "e08a8a"
+		Consts.EventType.COLLISION: col = "8892a3"
 		Consts.EventType.HEAL: col = "8ad39a"
 		Consts.EventType.DEATH: col = "ff6b6b"
 		Consts.EventType.KILL, Consts.EventType.SCORE: col = "ffd24a"

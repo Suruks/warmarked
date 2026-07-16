@@ -13,6 +13,9 @@ func _initialize() -> void:
 	test_protocol_rejects_malformed()
 	test_session_sanitizes_orders()
 	test_blind_gate_and_lockstep()
+	test_leaderboard_protocol()
+	test_ai_session_is_server_side()
+	test_ai_match_lockstep_with_client_copy()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -106,8 +109,9 @@ func test_blind_gate_and_lockstep() -> void:
 
 	# слепой гейт: до прихода обоих — не раскрывать
 	_check(not srv.both_submitted(), "гейт: изначально приказов нет")
+	_check(not srv.has_orders(0) and not srv.has_orders(1), "гейт: до сабмита приказов нет ни у кого")
 	_check(not srv.submit(0, oa), "гейт: после приказа A ещё ждём B")
-	_check(srv.orders_of(0) != null and not srv.both_submitted(), "сервер зафиксировал A, но держит скрытым (B ещё нет)")
+	_check(srv.has_orders(0) and not srv.both_submitted(), "сервер зафиксировал A, но держит скрытым (B ещё нет)")
 	_check(srv.submit(1, ob), "гейт: пришёл B → можно раскрывать")
 
 	# клиент получает ОБА приказа по сети (через сериализацию) и разрешает у себя
@@ -138,3 +142,99 @@ func _snap_eq(a: MatchState, b: MatchState) -> bool:
 		if ua.cell != ub.cell or ua.hp != ub.hp or ua.mana != ub.mana or ua.alive != ub.alive:
 			return false
 	return true
+
+
+func test_leaderboard_protocol() -> void:
+	var rows := [{"login": "alice", "level": 12}, {"login": "bob", "level": 3}]
+	var back := NetProtocol.leaderboard_from_data(NetProtocol.leaderboard_to_data(rows))
+	_check(back == rows, "лидерборд: сериализация туда-обратно без изменений")
+	# порядок задаёт сервер (лучшие сверху) — клиент его не пересортировывает
+	_check(back[0]["login"] == "alice", "лидерборд: порядок строк сохраняется")
+	# битая/враждебная таблица не должна ронять экран: плохие строки просто выбрасываются
+	_check(NetProtocol.leaderboard_from_data("не массив").is_empty(), "лидерборд: не-массив → пусто")
+	_check(NetProtocol.leaderboard_from_data([1, "x", null]).is_empty(), "лидерборд: не-словари → пусто")
+	_check(NetProtocol.leaderboard_from_data([{"n": "a"}]).is_empty(), "лидерборд: строка без уровня → отброшена")
+	_check(NetProtocol.leaderboard_from_data([{"n": 5, "l": 5}]).is_empty(), "лидерборд: логин не строка → отброшена")
+	var mixed := NetProtocol.leaderboard_from_data([{"n": "ok", "l": 5}, "мусор", {"n": "ok2", "l": 6}])
+	_check(mixed.size() == 2, "лидерборд: мусорная строка выброшена, валидные остались [%d]" % mixed.size())
+	# уровень санируется тем же правилом, что и рекорд в БД
+	_check(NetProtocol.leaderboard_from_data([{"n": "a", "l": 9999}])[0]["level"] == Difficulty.MAX_LEVEL,
+		"лидерборд: уровень выше MAX_LEVEL зажат")
+	_check(NetProtocol.leaderboard_from_data([{"n": "a", "l": -5}])[0]["level"] == 0,
+		"лидерборд: отрицательный уровень зажат в 0")
+	# санити-кэпы: длинный логин и бесконечная таблица не должны порвать вёрстку
+	var long_rows: Array = []
+	for i in NetProtocol.MAX_LEADERBOARD_ROWS + 20:
+		long_rows.append({"n": "p%d" % i, "l": 1})
+	_check(NetProtocol.leaderboard_from_data(long_rows).size() == NetProtocol.MAX_LEADERBOARD_ROWS,
+		"лидерборд: длина таблицы обрезана по кэпу")
+	var long_login := NetProtocol.leaderboard_from_data([{"n": "x".repeat(200), "l": 1}])
+	_check(String(long_login[0]["login"]).length() == NetProtocol.MAX_LOGIN_LEN,
+		"лидерборд: длинный логин обрезан по кэпу")
+
+
+# Бой с ИИ — такая же серверная сессия, как PvP: живой пир один, за игрока 1 ходит сам сервер.
+func test_ai_session_is_server_side() -> void:
+	var s := MatchSession.new(true, Loadout.default_team_net(), Loadout.default_team_net(), 0, 7, 42)
+	_check(s.ai_level == 7, "ИИ-сессия: уровень сложности запомнен [%d]" % s.ai_level)
+
+	# слепой гейт работает и здесь: одних приказов человека мало, пока не сходил бот
+	var oa := _move_slots(0, Vector2i(0, -1))
+	_check(not s.submit(0, oa), "ИИ-сессия: после приказов человека раунд ещё не раскрыть")
+	_check(s.plan_bot(), "ИИ-сессия: сервер сходил за бота -> раунд можно раскрывать")
+	_check(s.has_orders(1) and s.orders_of(1).size() == Consts.ORDER_SLOTS,
+		"ИИ-сессия: приказы бота — полный набор слотов")
+	var res := s.resolve()
+	_check(res.round == 1 and res.winner == -1, "ИИ-сессия: раунд 1 разрешён сервером")
+	_check(s.current_round() == 2, "ИИ-сессия: сессия продвинулась на раунд 2")
+	_check(not s.has_orders(0) and not s.has_orders(1),
+		"ИИ-сессия: разрешённый раунд снял приказы — новый раунд ждёт обоих заново")
+
+	# в PvP-сессии за соперника сервер не ходит — бот там взяться не может
+	var pvp := MatchSession.new(true)
+	_check(pvp.ai_level == 0, "PvP-сессия: уровня ИИ нет")
+	pvp.submit(0, oa)
+	_check(not pvp.plan_bot(), "PvP-сессия: сервер за живого соперника не ходит")
+	_check(not pvp.both_submitted(), "PvP-сессия: приказов соперника так и нет — ждём живого игрока")
+
+
+# Копия матча у клиента строится ТЕМИ ЖЕ аргументами, что и сессия на сервере (их присылает
+# ai_match_found_rpc) — и обязана сойтись с ней по состоянию, иначе лок-степ разойдётся молча.
+func test_ai_match_lockstep_with_client_copy() -> void:
+	var afo := true
+	var lo_a := Loadout.default_team_net()
+	var lo_b: Array = Loadout.canon_team_net(Loadout.random_team())
+	var level := 12
+	var mod_seed := 20260716
+
+	var srv := MatchSession.new(afo, lo_a, lo_b, 0, level, mod_seed)
+
+	# то же самое делает main.gd/_on_ai_matched по данным из пакета сервера
+	var cli := MatchState.new()
+	cli.setup(Loadout.sanitize_team_net(lo_a), Loadout.sanitize_team_net(lo_b), 0)
+	Difficulty.apply(cli, Consts.Player.B, level, mod_seed)
+	cli.a_first_on_odd = afo
+	cli.begin_round()
+	_check(_snap_eq(srv.state, cli), "ИИ-лок-степ: копия клиента совпала с сессией сервера на старте")
+
+	# раунд: человек шлёт приказы, сервер планирует бота и раскрывает ОБА — клиент резолвит у себя
+	var oa := _move_slots(0, Vector2i(0, -1))
+	srv.submit(0, oa)
+	srv.plan_bot()
+	var oa_net: Array = NetProtocol.orders_from_data(NetProtocol.orders_to_data(srv.orders_of(0)))
+	var ob_net: Array = NetProtocol.orders_from_data(NetProtocol.orders_to_data(srv.orders_of(1)))
+	srv.resolve()
+	Resolver.new().resolve(cli, oa_net, ob_net, cli.first_player_this_round())
+	var se: Array = []
+	cli.score_round(se)
+	cli.begin_round()
+	_check(_snap_eq(srv.state, cli), "ИИ-лок-степ: после раунда сервер и клиент в одинаковом состоянии")
+
+	# копия, построенная с ДРУГИМ seed (например, если бы клиент ролил усиления сам), разойдётся
+	var wrong := MatchState.new()
+	wrong.setup(Loadout.sanitize_team_net(lo_a), Loadout.sanitize_team_net(lo_b), 0)
+	Difficulty.apply(wrong, Consts.Player.B, level, mod_seed + 1)
+	wrong.a_first_on_odd = afo
+	wrong.begin_round()
+	_check(not _snap_eq(MatchSession.new(afo, lo_a, lo_b, 0, level, mod_seed).state, wrong),
+		"ИИ-лок-степ: чужой seed даёт другого бота — seed обязан ехать от сервера")

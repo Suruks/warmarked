@@ -13,7 +13,7 @@ func _initialize() -> void:
 	test_interleave_blocks_collision()
 	test_trap_immobilize_then_snipe()
 	test_snipe_slot_gate()
-	test_shotgun_knockback_collision()
+	test_shotgun_knockback_into_edge()
 	test_shotgun_area_2x2()
 	test_shotgun_fixed_direction()
 	test_snipe_relative()
@@ -45,7 +45,7 @@ func _initialize() -> void:
 	test_validator_mana_gate_and_double_cast()
 	test_validator_rejects_foreign_and_dead()
 	test_onslaught_pushes_and_advances()
-	test_onslaught_into_wall_collides_and_blocks_advance()
+	test_onslaught_into_wall_blocks_advance()
 	test_spikes_hits_diagonal_neighbors()
 	test_spikes_ignore_distant_diagonal()
 	test_hardening_reduces_damage()
@@ -109,6 +109,11 @@ func _initialize() -> void:
 	test_layout_recompute_grows_cell_when_only_width_expands()
 	test_difficulty_sanitize_unlocked()
 	test_difficulty_tier_unlock()
+	test_difficulty_playable_gate()
+	test_difficulty_personal_best()
+	test_difficulty_apply_is_deterministic()
+	test_settings_sanitize_net()
+	test_settings_round_trip()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -187,7 +192,7 @@ func test_snipe_slot_gate() -> void:
 	_check(b.hp == 10, "гейт снайпа: слот 1 физзлит, урона нет [%d]" % b.hp)
 
 
-func test_shotgun_knockback_collision() -> void:
+func test_shotgun_knockback_into_edge() -> void:
 	var s := _fresh()
 	s.board.obstacles = {}                            # чистое поле для предсказуемости
 	_place(s, 0, Vector2i(5, 5)).mana = Consts.SHOTGUN_MANA            # A hunter (дробь 3)
@@ -196,9 +201,10 @@ func test_shotgun_knockback_collision() -> void:
 	oa[0] = Order.make(0, Consts.Action.ABILITY3, Vector2i(6, 6))  # дробь по диагонали
 	var r := Resolver.new()
 	r.resolve(s, oa, _slots(), Consts.Player.A)
-	# дробь + отброс в угол (7,7 вне поля) → столкновение
-	var expect := 12 - Consts.SHOTGUN_DMG - Consts.COLLISION_DMG
-	_check(b.hp == expect, "дробь+столкновение о край: HP %d [%d]" % [expect, b.hp])
+	# дробь + отброс в угол (7,7 вне поля) → упор в край, урона за столкновение нет
+	var expect := 12 - Consts.SHOTGUN_DMG
+	_check(b.hp == expect, "дробь+упор в край: HP %d [%d]" % [expect, b.hp])
+	_check(b.cell == Vector2i(6, 6), "дробь+упор в край: жертва не сдвинулась [%s]" % b.cell)
 
 
 func test_kill_scoring() -> void:
@@ -867,16 +873,16 @@ func test_onslaught_pushes_and_advances() -> void:
 	_check(c.cell == Vector2i(3, 3), "натиск: атакующий занял клетку жертвы [%s]" % c.cell)
 
 
-func test_onslaught_into_wall_collides_and_blocks_advance() -> void:
-	# Жертва на (3,2), за ней стена (3,1): отброс невозможен → столкновение, продвижения нет
+func test_onslaught_into_wall_blocks_advance() -> void:
+	# Жертва на (3,2), за ней стена (3,1): отброс невозможен → урона за упор нет, продвижения нет
 	var s := _fresh()
 	var c := _arm(s, 2, Vector2i(3, 3), Consts.Skill.ONSLAUGHT)
 	var v := _place(s, 3, Vector2i(3, 2))
 	var oa := _slots()
 	oa[0] = Order.make(2, Consts.Action.ABILITY1, Vector2i(3, 2))
 	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
-	var expect := Consts.HUNTER_HP - Consts.ONSLAUGHT_DMG - Consts.COLLISION_DMG
-	_check(v.hp == expect, "натиск в стену: урон + столкновение %d [%d]" % [expect, v.hp])
+	var expect := Consts.HUNTER_HP - Consts.ONSLAUGHT_DMG
+	_check(v.hp == expect, "натиск в стену: только урон натиска %d [%d]" % [expect, v.hp])
 	_check(v.cell == Vector2i(3, 2), "натиск в стену: жертва не сдвинулась")
 	_check(c.cell == Vector2i(3, 3), "натиск в стену: продвижения нет — клетка занята")
 
@@ -1874,31 +1880,178 @@ func test_difficulty_sanitize_unlocked() -> void:
 		"difficulty: максимум остаётся максимумом")
 
 
-# Difficulty — статический синглтон (как Loadout/Layout): сохраняем/восстанавливаем состояние,
-# чтобы не повлиять на другие тесты в этом же процессе.
+# Прогресс считает СЕРВЕР по своей БД — чистой функцией, без статики клиента.
 func test_difficulty_tier_unlock() -> void:
+	var T := Difficulty.TIER
+	# свежий аккаунт: открыты только 1..TIER
+	_check(Difficulty.unlocked_after_win(T, 1) == T, "difficulty: победа ниже потолка не открывает новый блок")
+	_check(Difficulty.unlocked_after_win(T, T) == T * 2, "difficulty: победа на потолке открывает следующий блок")
+	_check(Difficulty.unlocked_after_win(T * 2, T * 2) == T * 3, "difficulty: следующий блок тоже открывается")
+
+	_check(Difficulty.unlocked_after_win(Difficulty.MAX_LEVEL, Difficulty.MAX_LEVEL) == Difficulty.MAX_LEVEL,
+		"difficulty: на максимуме больше открывать нечего")
+	_check(Difficulty.unlocked_after_win(Difficulty.MAX_LEVEL - T, Difficulty.MAX_LEVEL - T) == Difficulty.MAX_LEVEL,
+		"difficulty: последний блок доводит ровно до MAX_LEVEL")
+	# победа ВЫШЕ потолка невозможна (сервер такой бой не начнёт), но и она не перескочит блок
+	_check(Difficulty.unlocked_after_win(T, Difficulty.MAX_LEVEL) == T * 2,
+		"difficulty: прогресс двигается ровно на один блок, каким бы ни был уровень победы")
+	# прогресс из БД тоже внешние данные — санируется тем же правилом
+	_check(Difficulty.unlocked_after_win("мусор", T) == T * 2, "difficulty: битый прогресс -> TIER, дальше как обычно")
+
 	var saved_unlocked := Difficulty.unlocked
 	var saved_level := Difficulty.level
-
-	Difficulty.unlocked = Difficulty.TIER   # свежий аккаунт: открыты только 1..TIER
-	_check(not Difficulty.record_win(1), "difficulty: победа ниже потолка не открывает новый блок")
-	_check(Difficulty.unlocked == Difficulty.TIER, "difficulty: потолок не сдвинулся после победы ниже него")
-	_check(Difficulty.record_win(Difficulty.TIER), "difficulty: победа на потолке открывает следующий блок")
-	_check(Difficulty.unlocked == Difficulty.TIER * 2, "difficulty: потолок сдвинулся ровно на TIER")
-
-	Difficulty.unlocked = Difficulty.MAX_LEVEL
-	_check(not Difficulty.record_win(Difficulty.MAX_LEVEL), "difficulty: на максимуме больше открывать нечего")
-	_check(Difficulty.unlocked == Difficulty.MAX_LEVEL, "difficulty: потолок не превышает MAX_LEVEL")
-
-	Difficulty.unlocked = Difficulty.MAX_LEVEL - Difficulty.TIER
-	_check(Difficulty.record_win(Difficulty.MAX_LEVEL - Difficulty.TIER),
-		"difficulty: последний блок тоже открывается")
-	_check(Difficulty.unlocked == Difficulty.MAX_LEVEL, "difficulty: последний блок доводит ровно до MAX_LEVEL")
-
-	Difficulty.unlocked = Difficulty.TIER * 2
+	Difficulty.unlocked = T * 2
 	Difficulty.set_level(999)
-	_check(Difficulty.level == Difficulty.TIER * 2,
+	_check(Difficulty.level == T * 2,
 		"difficulty: set_level зажат текущим потолком unlocked, а не голым MAX_LEVEL")
-
 	Difficulty.unlocked = saved_unlocked
 	Difficulty.level = saved_level
+
+
+# Гейт уровня — серверный: клиент может попросить любой, играть можно только открытое.
+func test_difficulty_playable_gate() -> void:
+	_check(Difficulty.playable(1, Difficulty.TIER), "difficulty: первый уровень открыт всегда")
+	_check(Difficulty.playable(Difficulty.TIER, Difficulty.TIER), "difficulty: верхний открытый уровень играбелен")
+	_check(not Difficulty.playable(Difficulty.TIER + 1, Difficulty.TIER),
+		"difficulty: уровень выше прогресса не играбелен")
+	_check(not Difficulty.playable(Difficulty.MAX_LEVEL, Difficulty.TIER),
+		"difficulty: максимум на свежем аккаунте не играбелен")
+	_check(Difficulty.playable(Difficulty.MAX_LEVEL, Difficulty.MAX_LEVEL),
+		"difficulty: с полным прогрессом играбелен и максимум")
+	_check(not Difficulty.playable(0, Difficulty.MAX_LEVEL), "difficulty: уровень ниже минимума не играбелен")
+	_check(not Difficulty.playable(-5, Difficulty.MAX_LEVEL), "difficulty: отрицательный уровень не играбелен")
+	# просьба «не числом» не должна ни пролезть, ни уронить сервер
+	_check(not Difficulty.playable("50", Difficulty.MAX_LEVEL), "difficulty: уровень строкой не играбелен")
+	_check(not Difficulty.playable(null, Difficulty.MAX_LEVEL), "difficulty: уровень null не играбелен")
+	_check(not Difficulty.playable(3.0, Difficulty.MAX_LEVEL), "difficulty: уровень float не играбелен (только int)")
+
+
+func test_difficulty_personal_best() -> void:
+	var saved_best := Difficulty.best
+
+	# set_best — приём серверного значения: аномалия не должна ронять экран лидерборда
+	Difficulty.set_best(null)
+	_check(Difficulty.best == 0, "difficulty: рекорд не число -> 0 (побед нет)")
+	Difficulty.set_best("12")
+	_check(Difficulty.best == 0, "difficulty: рекорд строкой -> 0")
+	Difficulty.set_best(-7)
+	_check(Difficulty.best == 0, "difficulty: отрицательный рекорд -> 0")
+	Difficulty.set_best(9999)
+	_check(Difficulty.best == Difficulty.MAX_LEVEL, "difficulty: рекорд выше максимума зажат в MAX_LEVEL")
+	Difficulty.set_best(17.0)
+	_check(Difficulty.best == 17, "difficulty: float-рекорд (после JSON) принимается как int")
+
+	Difficulty.best = saved_best
+
+
+# Сервер и клиент строят копию боя с ИИ независимо и обязаны получить ОДНОГО И ТОГО ЖЕ бота:
+# усиления разыгрываются по seed, который сервер присылает клиенту (см. Net.ai_match_found_rpc).
+# Разошлись бы усиления — разошёлся бы и лок-степ, причём незаметно.
+func test_difficulty_apply_is_deterministic() -> void:
+	var team_a := Loadout.default_team_net()
+	var team_b := Loadout.default_team_net()
+	var level := 30   # заведомо больше витка _CYCLE: задеты все 5 типов модификаторов
+
+	var server := MatchState.new()
+	server.setup(team_a, team_b, 0)
+	Difficulty.apply(server, Consts.Player.B, level, 12345)
+
+	var client := MatchState.new()
+	client.setup(team_a, team_b, 0)
+	Difficulty.apply(client, Consts.Player.B, level, 12345)
+
+	_check(_bots_equal(server, client), "difficulty: тот же seed -> тот же бот у сервера и клиента")
+
+	# ...а другой seed даёт другого бота (иначе seed ничего не решал бы и тест выше был бы пустым)
+	var other := MatchState.new()
+	other.setup(team_a, team_b, 0)
+	Difficulty.apply(other, Consts.Player.B, level, 999)
+	_check(not _bots_equal(server, other), "difficulty: другой seed -> другой набор усилений бота")
+
+	# уровень 1 — игра без модификаторов, seed ни на что не влияет
+	var plain := MatchState.new()
+	plain.setup(team_a, team_b, 0)
+	Difficulty.apply(plain, Consts.Player.B, 1, 777)
+	var untouched := MatchState.new()
+	untouched.setup(team_a, team_b, 0)
+	_check(_bots_equal(plain, untouched), "difficulty: уровень 1 не даёт боту ничего")
+
+	# усиления достаются ТОЛЬКО боту — команда игрока не тронута ни на каком уровне
+	_check(_team_equal(server, untouched, Consts.Player.A), "difficulty: команда игрока не усилена")
+
+
+# Всё, что модификаторы могут изменить у бота: HP/мана (в т.ч. перманентные бонусы),
+# киты (бонусная 4-я способность), бонусы урона и скидки маны.
+func _bots_equal(a: MatchState, b: MatchState) -> bool:
+	return _team_equal(a, b, Consts.Player.B)
+
+
+func _team_equal(a: MatchState, b: MatchState, player: int) -> bool:
+	var ua := a.units_of(player)
+	var ub := b.units_of(player)
+	if ua.size() != ub.size():
+		return false
+	for i in ua.size():
+		var x := ua[i]
+		var y := ub[i]
+		if x.max_hp != y.max_hp or x.hp != y.hp or x.mana != y.mana or x.start_mana_bonus != y.start_mana_bonus:
+			return false
+		if x.skills != y.skills or x.dmg_bonus != y.dmg_bonus or x.mana_discount != y.mana_discount:
+			return false
+	return true
+
+
+# Настройки приходят от сервера и от клиента — оба внешние данные. Битое поле не должно ни
+# ронять экран, ни включать втихую отладочный режим.
+func test_settings_sanitize_net() -> void:
+	var d := Settings.sanitize_net({"vol": 0.5, "imp": true})
+	_check(d["vol"] == 0.5 and d["imp"] == true, "settings: валидный набор проходит как есть")
+
+	# санитайзер всегда отдаёт ПОЛНЫЙ набор — вызывающему не нужно досанировать поля самому
+	var empty := Settings.sanitize_net({})
+	_check(empty["vol"] == Settings.VOLUME_DEFAULT and empty["imp"] == false,
+		"settings: пустой набор -> дефолты обоих полей")
+	_check(Settings.sanitize_net("не словарь") == empty, "settings: не-словарь -> дефолты")
+	_check(Settings.sanitize_net(null) == empty, "settings: null -> дефолты")
+
+	_check(Settings.sanitize_net({"vol": 5.0})["vol"] == 1.0, "settings: громкость выше 1 зажата")
+	_check(Settings.sanitize_net({"vol": -3.0})["vol"] == 0.0, "settings: отрицательная громкость зажата в 0")
+	_check(Settings.sanitize_net({"vol": 1})["vol"] == 1.0, "settings: громкость int (после JSON) принимается")
+	_check(Settings.sanitize_net({"vol": "громко"})["vol"] == Settings.VOLUME_DEFAULT,
+		"settings: громкость строкой -> дефолт")
+	# отладочный флаг — только явный bool: «1»/«true» строкой его не включают
+	_check(Settings.sanitize_net({"imp": 1})["imp"] == false, "settings: отладочный флаг числом -> выключен")
+	_check(Settings.sanitize_net({"imp": "true"})["imp"] == false, "settings: отладочный флаг строкой -> выключен")
+
+
+# Круг «изменил -> уехало на сервер -> вернулось при входе»: to_net/apply_net обязаны сходиться,
+# иначе настройка молча терялась бы на перезаходе.
+func test_settings_round_trip() -> void:
+	var saved_vol := Settings.volume
+	var saved_imp := Settings.allow_impossible_targets
+
+	Settings.set_volume(0.25)
+	Settings.allow_impossible_targets = true
+	var packet := Settings.to_net()
+
+	# другое устройство/сессия: состояние иное, вход его перезаписывает присланным
+	Settings.set_volume(1.0)
+	Settings.allow_impossible_targets = false
+	Settings.apply_net(packet)
+	_check(is_equal_approx(Settings.volume, 0.25), "settings: громкость вернулась с сервера [%f]" % Settings.volume)
+	_check(Settings.allow_impossible_targets, "settings: отладочный флаг вернулся с сервера")
+
+	# громкость применяется к звуку, а не только к полю — иначе «вернулась» была бы на бумаге
+	var bus := AudioServer.get_bus_index("Master")
+	_check(is_equal_approx(db_to_linear(AudioServer.get_bus_volume_db(bus)), 0.25),
+		"settings: громкость применена к мастер-шине [%f]" % db_to_linear(AudioServer.get_bus_volume_db(bus)))
+	_check(not AudioServer.is_bus_mute(bus), "settings: ненулевая громкость шину не глушит")
+
+	# ноль — это тишина (mute), а не «очень тихо»
+	Settings.set_volume(0.0)
+	_check(AudioServer.is_bus_mute(bus), "settings: нулевая громкость глушит шину")
+	Settings.set_volume(0.7)
+	_check(not AudioServer.is_bus_mute(bus), "settings: звук снова включается после нуля")
+
+	Settings.set_volume(saved_vol)
+	Settings.allow_impossible_targets = saved_imp

@@ -59,6 +59,36 @@ static func orders_from_data(data: Variant) -> Array:
 	return out
 
 
+# ------------------------------------------------------------------ лидерборд
+
+const MAX_LEADERBOARD_ROWS := 50   # санити-кэп на длину присланной таблицы
+const MAX_LOGIN_LEN := 32          # длинный логин порвал бы вёрстку строки таблицы
+
+# [{login, level}] → компактные ключи для RPC.
+static func leaderboard_to_data(rows: Array) -> Array:
+	var out: Array = []
+	for r in rows:
+		out.append({"n": String(r.get("login", "")), "l": int(r.get("level", 0))})
+	return out
+
+
+# Сервер авторитетен, но клиент всё равно не обязан ему доверять слепо: битая/враждебная
+# строка молча выбрасывается, а не роняет экран лидерборда. Порядок (лучшие сверху) —
+# от сервера, клиент его не пересортировывает.
+static func leaderboard_from_data(data: Variant) -> Array:
+	var out: Array = []
+	if typeof(data) != TYPE_ARRAY:
+		return out
+	for r in (data as Array).slice(0, MAX_LEADERBOARD_ROWS):
+		if typeof(r) != TYPE_DICTIONARY:
+			continue
+		if typeof(r.get("n")) != TYPE_STRING or not _is_int(r.get("l")):
+			continue
+		out.append({"login": String(r["n"]).substr(0, MAX_LOGIN_LEN),
+			"level": Difficulty.sanitize_best(r["l"])})
+	return out
+
+
 static func _is_int(v: Variant) -> bool:
 	return typeof(v) == TYPE_INT
 
