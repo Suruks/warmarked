@@ -119,8 +119,14 @@ func join_queue() -> void:
 	rpc_id(1, "req_join_queue", Consts.PROTOCOL_VERSION, Loadout.team_net())
 
 
-func save_loadout(team_net: Array) -> void:
+# false — связи нет, отряд на сервер НЕ уехал. Молчать тут нельзя: игрок собрал отряд, нажал
+# «Сохранить», а на следующем входе сервер прислал бы ему старый — это потеря работы без единого
+# слова. Раньше вызов просто сыпал ошибкой RPC в лог и терял отряд.
+func save_loadout(team_net: Array) -> bool:
+	if not _server_reachable():
+		return false
 	rpc_id(1, "req_save_loadout", team_net)
+	return true
 
 
 # Настройки живут за аккаунтом (см. Settings). Шлём весь набор целиком, а не по полю: он
@@ -309,14 +315,20 @@ func _start_ai_match_for(peer: int, level: int) -> void:
 	print("[server] матч %d: peer %d против ИИ, уровень %d (map=%d, seed=%d)" % [mid, peer, level, map_index, mod_seed])
 
 
-## Выход из матча по своей воле (сдался/ушёл в меню), сокет при этом жив. Для сервера это то же
-## самое, что отключение пира: матч закрывается, соперник (если он живой) узнаёт об этом.
-## Брошенный бой с ИИ не даёт ни рекорда, ни прогресса — исход считается только в resolve.
+## Выход по своей воле (сдался/ушёл в меню/отменил поиск), сокет при этом жив. Для сервера это
+## то же самое, что отключение пира, только без отключения: игрок уходит и из очереди, и из
+## матча, а живой соперник узнаёт об этом. Брошенный бой с ИИ не даёт ни рекорда, ни прогресса —
+## исход считается только в resolve.
 @rpc("any_peer", "call_remote", "reliable")
 func req_leave_match() -> void:
 	if not is_server:
 		return
 	var sender := multiplayer.get_remote_sender_id()
+	# Отмена поиска соперника: матча ещё нет, но в очереди игрок уже стоит — иначе его свело бы
+	# с кем-то, пока он сидит в меню (раньше из очереди его выкидывал сам разрыв связи).
+	if _queue.has(sender):
+		_queue.erase(sender)
+		print("[server] peer %d вышел из очереди (осталось %d)" % [sender, _queue.size()])
 	if not _peer_match.has(sender):
 		return
 	var mid: int = _peer_match[sender]

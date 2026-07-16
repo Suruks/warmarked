@@ -441,6 +441,19 @@ func _close_options(dlg: AcceptDialog) -> void:
 	Net.save_settings()
 
 
+# Короткое предупреждение поверх текущего экрана — для того, что игрок обязан заметить, но что не
+# меняет, где он находится (напр. не сохранился отряд).
+func _warn(text: String) -> void:
+	var dlg := AcceptDialog.new()
+	dlg.title = "Внимание"
+	dlg.dialog_text = text
+	dlg.ok_button_text = "Понятно"
+	dlg.close_requested.connect(dlg.queue_free)
+	dlg.confirmed.connect(dlg.queue_free)
+	add_child(dlg)
+	dlg.popup_centered()
+
+
 func _status_box(text: String) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 16)
@@ -660,7 +673,9 @@ func _show_collection() -> void:
 	cp.offset_top = Layout.SCORE_TOP_Y
 	cp.offset_bottom = -Layout.PANEL_BOTTOM_MARGIN
 	add_child(cp)
-	cp.team_saved.connect(func(): Net.save_loadout(Loadout.team_net()))
+	cp.team_saved.connect(func():
+		if not Net.save_loadout(Loadout.team_net()):
+			_warn("Не удалось сохранить отряд: нет связи с сервером.\nОтряд действует в этом бою, но на сервер не записан."))
 	cp.closed.connect(func():
 		cp.queue_free()
 		_show_menu())
@@ -999,15 +1014,15 @@ func _play_outcome_sound() -> void:
 	Sfx.play(Sfx.VICTORY if mine else Sfx.DEFEAT)
 
 
-# Выход из боя в меню (сдался/доиграл). Бой с ИИ покидаем, НЕ рвя сокет: он тут же нужен снова —
-# экрану сложности за лидербордом, а самому бою с ИИ и подавно (его ведёт сервер). Живой PvP-матч,
-# как и раньше, закрываем разрывом связи. В хотсите сеть не участвует вовсе.
+# Выход из боя в меню (сдался/доиграл/отменил поиск). Сокет НЕ рвём — ни после PvP, ни после боя
+# с ИИ: он же и сессия входа, а меню без неё наполовину мертво (лидерборд, сохранение отряда и
+# настроек молча не работают). Раньше PvP-выход закрывал сокет — тогда он был только транспортом
+# матча, но с тех пор на нём висит вход, и цена разрыва выросла. Матч (или очередь) на сервере
+# закрывает req_leave_match — соперник узнаёт о выходе так же, как узнавал из обрыва связи.
+# В хотсите сеть не участвует вовсе, там и закрывать нечего.
 func _exit_match_to_menu() -> void:
-	if _ai_match:
+	if online:
 		Net.leave_match()
-	elif online:
-		Net.disconnect_net()
-		_authed_connection = false
 	_ai_match = false
 	online = false
 	_show_menu()
