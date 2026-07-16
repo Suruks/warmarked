@@ -15,6 +15,18 @@ echo "--- kill stray --import (lock deadlock guard) ---"
 pkill -9 -f 'Godot.*--import' || true
 sleep 1
 
+# `--import` поднимает РЕДАКТОР, а тот перед выходом восстанавливает сохранённую UI-сессию:
+# доки, открытые вкладки сцен, окна плагинов (.godot/editor/editor_layout.cfg и
+# main.tscn-editstate-*.cfg). На сервере без дисплея этот шаг («Loading plugin window layout»)
+# не возвращается НИКОГДА: импорт давно закончен, кэш классов записан, а процесс висит, пока его
+# не убьёт timeout ниже — отсюда и `[warn] --import failed or timed out`, и три минуты простоя
+# сервиса на каждый деплой (stop -> 180с -> start).
+# Сама сессия на сервере бессмысленна (редактором тут никто не пользуется), а сохраняет её только
+# интерактивный запуск — headless-импорт её не пишет. Поэтому сносим её перед импортом: без неё
+# восстанавливать нечего, и --import честно отрабатывает за ~15с с кодом 0.
+echo "--- drop editor UI session (headless import hangs restoring it) ---"
+rm -rf "$REMOTE/.godot/editor"
+
 echo "--- swap in staged scripts/addons/project.godot ---"
 rm -rf "$REMOTE/scripts" "$REMOTE/addons"
 mv "$REMOTE/scripts_new" "$REMOTE/scripts"
@@ -39,4 +51,15 @@ if [ "$NEW_PID" = "$OLD_PID" ] || [ "$NEW_PID" = "0" ]; then
 	exit 1
 fi
 echo "[OK] restarted: PID $OLD_PID -> $NEW_PID"
-ss -ltnp | grep 8910 || echo '(port 8910 not shown yet - check manually)'
+
+# Сменившегося PID мало: процесс живёт и с несобравшимися скриптами (напр. кэш классов отстал от
+# нового scripts/ -> автолоад Net не создаётся -> start_server не вызывается). Тогда сервис
+# «active», PID новый, деплой рапортует [OK] — а порт не слушает никто, и игроки видят 502.
+# Единственный честный признак «сервер поднялся» — открытый 8910, по нему и судим.
+if ! ss -ltn | grep -q ':8910'; then
+	echo "[FAIL] Порт 8910 не слушает - сервер запустился, но не работает."
+	echo "       Смотри ошибки скриптов: journalctl -u warmarked -n 30 --no-pager"
+	exit 1
+fi
+ss -ltnp | grep 8910
+echo "[OK] порт 8910 слушает - сервер действительно поднялся"
