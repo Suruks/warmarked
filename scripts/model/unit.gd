@@ -32,6 +32,10 @@ var hardened: bool = false
 # Осколки Кристалкайнда. Пока взведено, враг, нанёсший урон, получает ответку. Сбрасывается в начале раунда.
 var shards_armed: bool = false
 
+# «Держись подальше» Охотника (стойка). Пока взведено, вошедший в соседнюю клетку враг получает
+# урон и отброс. Держит свой раунд (может сработать не раз), сбрасывается в начале следующего.
+var stay_away_armed: bool = false
+
 # «Охота началась» Охотника: пока hunt_turns > 0, атаки/скиллы Охотника по этому юниту бьют
 # на HUNT_BONUS_DMG сильнее. Держится через раунды (убывает), как Кровавый след/Оковы/Замедление.
 var hunt_turns: int = 0
@@ -129,6 +133,7 @@ func clone() -> Unit:
 	u.reflexes_armed = reflexes_armed
 	u.hardened = hardened
 	u.shards_armed = shards_armed
+	u.stay_away_armed = stay_away_armed
 	u.hunt_turns = hunt_turns
 	u.bleed_turns = bleed_turns
 	u.bleed_owner = bleed_owner
@@ -161,6 +166,7 @@ func snapshot() -> Dictionary:
 		"reflex": reflexes_armed,
 		"hardened": hardened,
 		"shards": shards_armed,
+		"stay_away": stay_away_armed,
 		"hunted": hunt_turns,
 		"bleed": bleed_turns,
 		"disoriented": disoriented,

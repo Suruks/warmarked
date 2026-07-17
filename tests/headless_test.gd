@@ -118,6 +118,7 @@ func _initialize() -> void:
 	test_meditation_unlocks_expensive_skill()
 	test_meditation_mana_spent_by_resolver()
 	test_stay_away_hits_and_pushes()
+	test_stay_away_stance_repeats_in_round()
 	test_stay_away_no_pingpong()
 	test_caltrops_ticks_each_round()
 	test_fast_reload_repeats_ability()
@@ -2157,17 +2158,41 @@ func _park(s: MatchState, keep_ids: Array) -> void:
 # Держись подальше: враг, вошедший в соседнюю клетку с Охотником, получает урон и отбрасывается.
 func test_stay_away_hits_and_pushes() -> void:
 	# Ряд y=4 полностью открыт (на карте стены в (3,1),(3,5),(1,3),(5,3)).
+	# Стойку надо ВЗВЕСТИ (слот 0), затем враг входит рядом (слот 1) — и получает урон+отброс.
 	var s := _fresh()
 	var hunter := _place(s, 0, Vector2i(2, 4))
-	hunter.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+	hunter.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]  # AB1 = стойка
+	hunter.mana = Consts.STAY_AWAY_MANA
 	var enemy := _place(s, 3, Vector2i(4, 4))
 	_park(s, [0, 3])
 	var hp0 := enemy.hp
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1)                      # охотник взводит стойку
 	var ob := _slots()
-	ob[0] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])   # (4,4)->(3,4), рядом с охотником (2,4)
-	Resolver.new().resolve(s, _slots(), ob, Consts.Player.B)
-	_check(enemy.hp == hp0 - Consts.STAY_AWAY_DMG, "держись подальше: враг получил урон [%d]" % enemy.hp)
+	ob[1] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])   # (4,4)->(3,4), рядом с охотником (2,4)
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(hunter.mana == 0, "держись подальше: стойка списала ману [%d]" % hunter.mana)
+	_check(enemy.hp == hp0 - Consts.STAY_AWAY_DMG, "держись подальше: враг получил %d урона [%d]" % [Consts.STAY_AWAY_DMG, enemy.hp])
 	_check(enemy.cell == Vector2i(4, 4), "держись подальше: враг отброшен обратно на (4,4) [%s]" % str(enemy.cell))
+
+
+# Стойка держит весь свой раунд — второй враг, вошедший рядом позже, тоже получает урон.
+func test_stay_away_stance_repeats_in_round() -> void:
+	var s := _fresh()
+	var hunter := _place(s, 0, Vector2i(2, 4))
+	hunter.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+	hunter.mana = Consts.STAY_AWAY_MANA
+	var e1 := _place(s, 3, Vector2i(4, 4))   # войдёт слева в (3,4)
+	var e2 := _place(s, 4, Vector2i(2, 6))   # войдёт снизу в (2,5)
+	_park(s, [0, 3, 4])
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1)                      # взвод стойки
+	var ob := _slots()
+	ob[1] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])   # e1: (4,4)->(3,4) рядом
+	ob[2] = Order.make_move(4, [Vector2i(0, -1)] as Array[Vector2i])   # e2: (2,6)->(2,5) рядом
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
+	_check(e1.hp == Consts.HUNTER_HP - Consts.STAY_AWAY_DMG, "стойка: первый враг задет [%d]" % e1.hp)
+	_check(e2.hp == Consts.FAIRY_HP - Consts.STAY_AWAY_DMG, "стойка: второй враг тоже задет — держит весь раунд [%d]" % e2.hp)
 
 
 # Отброс от «Держись подальше» не должен ловиться ВТОРЫМ таким же Охотником (иначе бесконечный
@@ -2178,14 +2203,19 @@ func test_stay_away_no_pingpong() -> void:
 	var s := _fresh()
 	var h0 := _place(s, 0, Vector2i(2, 4))
 	h0.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+	h0.mana = Consts.STAY_AWAY_MANA
 	var h1 := _place(s, 1, Vector2i(5, 4))   # рядом с клеткой отброса (4,4)
 	h1.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.HEAL, Consts.Skill.FLASH]
+	h1.mana = Consts.STAY_AWAY_MANA
 	var enemy := _place(s, 3, Vector2i(3, 3))
 	_park(s, [0, 1, 3])
 	var hp0 := enemy.hp
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1)   # h0 взводит стойку
+	oa[1] = Order.make(1, Consts.Action.ABILITY1)   # h1 взводит стойку
 	var ob := _slots()
-	ob[0] = Order.make_move(3, [Vector2i(0, 1)] as Array[Vector2i])   # (3,3)->(3,4) рядом с h0
-	Resolver.new().resolve(s, _slots(), ob, Consts.Player.B)
+	ob[2] = Order.make_move(3, [Vector2i(0, 1)] as Array[Vector2i])   # (3,3)->(3,4) рядом с h0
+	Resolver.new().resolve(s, oa, ob, Consts.Player.A)
 	_check(enemy.hp == hp0 - Consts.STAY_AWAY_DMG, "держись подальше: урон РОВНО один раз, без пинг-понга [%d]" % enemy.hp)
 	_check(enemy.cell == Vector2i(4, 4), "держись подальше: отброшен на (4,4) и там остановлен [%s]" % str(enemy.cell))
 	_check(enemy.alive, "держись подальше: враг жив (не зациклило до смерти)")

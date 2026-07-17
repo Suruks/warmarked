@@ -182,14 +182,14 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 		_check_stay_away(state, unit, cell, events)
 
 
-# «Держись подальше» (пассив Охотника): враг, вошедший в соседнюю клетку с таким Охотником,
-# получает урон и отбрасывается на 1 клетку ОТ него. Срабатывает один Охотник за вход (младший
-# по id — детерминированно); его толчок помечен allow_stay_away=false, поэтому цепочка «толкнули
-# к другому Охотнику» не зациклится. Пассив постоянный — не расходуется.
+# «Держись подальше» (стойка Охотника): враг, вошедший в соседнюю клетку с Охотником со ВЗВЕДЁННОЙ
+# стойкой, получает урон и отбрасывается на 1 клетку ОТ него. Срабатывает один Охотник за вход
+# (младший по id — детерминированно); его толчок помечен allow_stay_away=false, поэтому цепочка
+# «толкнули к другому Охотнику» не зациклится. Стойка держит весь раунд — не расходуется на срабатывании.
 func _check_stay_away(state: MatchState, unit: Unit, cell: Vector2i, events: Array) -> void:
 	var best: Unit = null
 	for h in state.units:
-		if not h.alive or h.owner == unit.owner or not h.has_skill(Consts.Skill.STAY_AWAY):
+		if not h.alive or h.owner == unit.owner or not h.stay_away_armed:
 			continue
 		if _cheb(h.cell, cell) != 1:
 			continue
@@ -493,6 +493,7 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.SWAP: _sk_swap(state, unit, et, events)
 		Consts.Skill.CALTROPS: _sk_caltrops(state, unit, et, events)
 		Consts.Skill.POWER_SURGE: _sk_power_surge(state, unit, events)
+		Consts.Skill.STAY_AWAY: _sk_stay_away(state, unit, events)
 
 
 # Капкан — не ставится в занятую юнитом или могилой клетку
@@ -1006,6 +1007,14 @@ func _sk_reflexes(state: MatchState, unit: Unit, events: Array) -> void:
 	unit.reflexes_armed = true
 	_push(events, state, Consts.EventType.REFLEX_ARMED,
 		"%s встаёт в стойку рефлексов" % unit.full_name())
+
+
+# Держись подальше — стойка: пока взведена (её раунд), вошедший рядом враг получает урон и отброс
+# (см. _check_stay_away). Стойку резолвер взводит, срабатывает она на входах врагов после этого.
+func _sk_stay_away(state: MatchState, unit: Unit, events: Array) -> void:
+	unit.stay_away_armed = true
+	_push(events, state, Consts.EventType.AMBUSH_ARMED,
+		"%s встаёт в стойку «Держись подальше»" % unit.full_name())
 
 
 # Затвердение — стойка: входящий урон в этом раунде срезается на HARDENING_REDUCTION (см. _deal_damage)

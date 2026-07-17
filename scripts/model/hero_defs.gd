@@ -97,7 +97,7 @@ static func is_neutral(skill: int) -> bool:
 static func is_passive(skill: int) -> bool:
 	return skill in [Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD, Consts.Skill.BLESSING,
 			Consts.Skill.LIGHTNESS, Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA,
-			Consts.Skill.STAY_AWAY, Consts.Skill.FAST_RELOAD]
+			Consts.Skill.FAST_RELOAD]
 
 
 # Класс (hero_type), которому принадлежит скилл; -1 если ничей.
@@ -230,9 +230,8 @@ static func _skill_def_raw(skill: int) -> AbilityDef:
 			return AbilityDef.new("Крюк", Consts.HOOK_MANA, Target.CELL,
 				"прямая до %d: притягивает юнита (врага или союзника) на %d клетку к себе" % [Consts.HOOK_RANGE, Consts.HOOK_PULL])
 		Consts.Skill.STAY_AWAY:
-			return AbilityDef.new("Держись подальше", 0, Target.NONE,
-				"пассив: враг, вошедший в соседнюю клетку, получает %d урона и отбрасывается" % Consts.STAY_AWAY_DMG,
-				[], true)
+			return AbilityDef.new("Держись подальше", Consts.STAY_AWAY_MANA, Target.NONE,
+				"стойка на раунд: враг, вошедший в соседнюю клетку, получает %d урона и отбрасывается" % Consts.STAY_AWAY_DMG)
 		Consts.Skill.CALTROPS:
 			return AbilityDef.new("Шипы", Consts.CALTROPS_MANA, Target.CELL,
 				"поле шипов в радиусе %d: лежит %d раунда, в конце каждого — %d урона врагу на клетке"

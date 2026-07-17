@@ -130,6 +130,7 @@ func begin_round() -> Array:
 		u.reflexes_armed = false
 		u.hardened = false
 		u.shards_armed = false
+		u.stay_away_armed = false   # стойка «Держись подальше» держит лишь свой раунд
 		u.disoriented = false   # дезориентация действует лишь на свой раунд
 		u.shell_used = false     # «Кристальный панцирь» — срезка снова доступна
 		u.block_amount = 0       # «Блок» — запас поглощения сбрасывается
