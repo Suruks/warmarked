@@ -114,6 +114,14 @@ func _initialize() -> void:
 	test_difficulty_apply_is_deterministic()
 	test_settings_sanitize_net()
 	test_settings_round_trip()
+	test_mana_sequence_ok()
+	test_meditation_unlocks_expensive_skill()
+	test_meditation_mana_spent_by_resolver()
+	test_stay_away_hits_and_pushes()
+	test_stay_away_no_pingpong()
+	test_caltrops_ticks_each_round()
+	test_fast_reload_repeats_ability()
+	test_power_surge_self_damage_and_mana()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -2055,3 +2063,213 @@ func test_settings_round_trip() -> void:
 
 	Settings.set_volume(saved_vol)
 	Settings.allow_impossible_targets = saved_imp
+
+
+# Единая мана-модель (клиент и сервер зовут её же): бегущий банк тратит cost в слоте, прирост
+# gain достаётся ПОЗДНИМ слотам. Ни разу в минус -> ок.
+func test_mana_sequence_ok() -> void:
+	# без прироста модель совпадает со «суммой костов» — как было раньше
+	_check(OrderValidator.mana_sequence_ok([[2, 0], null, [2, 0], null], 4), "мана: косты 2+2 при старте 4 — ок")
+	_check(not OrderValidator.mana_sequence_ok([[2, 0], null, [2, 0], null], 3), "мана: косты 2+2 при старте 3 — нет")
+	# прирост в РАННЕМ слоте оплачивает поздний
+	_check(OrderValidator.mana_sequence_ok([[0, 1], null, [4, 0], null], 3),
+		"мана: медитация(+1) в слоте 0 оплачивает скилл 4 в слоте 2 при старте 3")
+	# ...а в ПОЗДНЕМ — уже нет (мана тратится по порядку)
+	_check(not OrderValidator.mana_sequence_ok([[4, 0], null, [0, 1], null], 3),
+		"мана: прирост в позднем слоте не оплачивает ранний скилл")
+	# прирост своему слоту не помогает: скилл кост 1 при 0 маны не проходит, даже если сам даёт +1
+	_check(not OrderValidator.mana_sequence_ok([[1, 1]], 0), "мана: свой прирост своему косту не помогает")
+	_check(OrderValidator.mana_sequence_ok([[0, 1]], 0), "мана: медитация (кост 0) кастуется при 0 маны")
+	_check(OrderValidator.mana_sequence_ok([null, null, null, null], 0), "мана: нет действий -> ок")
+	# цепочка из двух медитаций копит на дорогой скилл в третьем слоте
+	_check(OrderValidator.mana_sequence_ok([[0, 1], [0, 1], [4, 0], null], 2),
+		"мана: две медитации (+2) оплачивают скилл 4 при старте 2")
+
+
+# Сервер (OrderValidator) обязан согласиться с разблокировкой: скилл, разблокированный приростом
+# медитации в раннем слоте, НЕ должен срезаться в пустой — иначе клиент показал бы доступным то,
+# что сервер молча выкинет.
+func test_meditation_unlocks_expensive_skill() -> void:
+	var s := _fresh()
+	var u := _place(s, 0, Vector2i(3, 3))
+	# AB1 = Медитация, AB2 = Крест смерти (кост 4). Старт маны 3 — на крест «в лоб» не хватает.
+	u.skills = [Consts.Skill.MEDITATION, Consts.Skill.DEATHCROSS, Consts.Skill.PRECISE]
+	u.mana = Consts.DEATHCROSS_MANA - 1
+
+	var orders := _slots()
+	orders[0] = Order.make(0, Consts.Action.ABILITY1)   # медитация (без цели)
+	orders[2] = Order.make(0, Consts.Action.ABILITY2)   # крест
+	var sane := OrderValidator.sanitize(s, orders, Consts.Player.A)
+	_check(not sane[0].is_empty(), "медитация в слоте 0 сохранена")
+	_check(not sane[2].is_empty(), "крест в слоте 2 РАЗБЛОКИРОВАН приростом медитации (сервер согласен)")
+
+	# без медитации тот же крест на 3 маны сервер режет
+	var no_med := _slots()
+	no_med[2] = Order.make(0, Consts.Action.ABILITY2)
+	_check(OrderValidator.sanitize(s, no_med, Consts.Player.A)[2].is_empty(),
+		"без медитации крест на нехватку маны срезан в пустой")
+
+	# медитация ПОСЛЕ креста — прирост опаздывает, крест не оплачен
+	var late := _slots()
+	late[0] = Order.make(0, Consts.Action.ABILITY2)   # крест в раннем слоте
+	late[2] = Order.make(0, Consts.Action.ABILITY1)   # медитация в позднем
+	var sane_late := OrderValidator.sanitize(s, late, Consts.Player.A)
+	_check(sane_late[0].is_empty(), "крест в раннем слоте поздней медитацией не оплачен — срезан")
+	_check(not sane_late[2].is_empty(), "поздняя медитация сама по себе валидна")
+
+
+# Крайне важно: разрешение валидатора должно совпадать с РЕАЛЬНОСТЬЮ резолвера — прирощенная мана
+# действительно тратится, а не оказывается фикцией (иначе скилл физзлил бы на разрешении).
+func test_meditation_mana_spent_by_resolver() -> void:
+	var s := _fresh()
+	var u := _place(s, 0, Vector2i(3, 3))
+	u.skills = [Consts.Skill.MEDITATION, Consts.Skill.DEATHCROSS, Consts.Skill.PRECISE]
+	u.mana = Consts.DEATHCROSS_MANA - 1   # 3
+	var orders := _slots()
+	orders[0] = Order.make(0, Consts.Action.ABILITY1)   # медитация -> +1
+	orders[2] = Order.make(0, Consts.Action.ABILITY2)   # крест -> тратит 4
+	Resolver.new().resolve(s, orders, _slots(), Consts.Player.A)
+	_check(u.mana == 0, "резолвер: медитация(+1) оплатила крест(4) при старте 3 -> мана 0 [%d]" % u.mana)
+
+	# контроль: без медитации крест на нехватку маны физзлит, мана цела
+	var s2 := _fresh()
+	var u2 := _place(s2, 0, Vector2i(3, 3))
+	u2.skills = [Consts.Skill.MEDITATION, Consts.Skill.DEATHCROSS, Consts.Skill.PRECISE]
+	u2.mana = Consts.DEATHCROSS_MANA - 1
+	var no_med := _slots()
+	no_med[2] = Order.make(0, Consts.Action.ABILITY2)
+	Resolver.new().resolve(s2, no_med, _slots(), Consts.Player.A)
+	_check(u2.mana == 3, "резолвер: без медитации крест физзлит, мана цела [%d]" % u2.mana)
+
+
+# ---------------------------------------------------------------- новые скиллы
+
+# Разводит всех юнитов, кроме keep_ids, по углам — чтобы не мешали в тесте.
+func _park(s: MatchState, keep_ids: Array) -> void:
+	var spots := [Vector2i(0, 0), Vector2i(6, 0), Vector2i(0, 6), Vector2i(6, 6), Vector2i(0, 3), Vector2i(6, 3)]
+	var i := 0
+	for u in s.units:
+		if not (u.id in keep_ids):
+			u.cell = spots[i]
+			i += 1
+
+
+# Держись подальше: враг, вошедший в соседнюю клетку с Охотником, получает урон и отбрасывается.
+func test_stay_away_hits_and_pushes() -> void:
+	# Ряд y=4 полностью открыт (на карте стены в (3,1),(3,5),(1,3),(5,3)).
+	var s := _fresh()
+	var hunter := _place(s, 0, Vector2i(2, 4))
+	hunter.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+	var enemy := _place(s, 3, Vector2i(4, 4))
+	_park(s, [0, 3])
+	var hp0 := enemy.hp
+	var ob := _slots()
+	ob[0] = Order.make_move(3, [Vector2i(-1, 0)] as Array[Vector2i])   # (4,4)->(3,4), рядом с охотником (2,4)
+	Resolver.new().resolve(s, _slots(), ob, Consts.Player.B)
+	_check(enemy.hp == hp0 - Consts.STAY_AWAY_DMG, "держись подальше: враг получил урон [%d]" % enemy.hp)
+	_check(enemy.cell == Vector2i(4, 4), "держись подальше: враг отброшен обратно на (4,4) [%s]" % str(enemy.cell))
+
+
+# Отброс от «Держись подальше» не должен ловиться ВТОРЫМ таким же Охотником (иначе бесконечный
+# пинг-понг). Проверяем: враг получает урон РОВНО раз и останавливается.
+func test_stay_away_no_pingpong() -> void:
+	# h0 отбросит врага на (4,4), где рядом стоит h1 с тем же пассивом — тот НЕ должен поймать
+	# отброс (иначе бесконечный пинг-понг между двумя Охотниками).
+	var s := _fresh()
+	var h0 := _place(s, 0, Vector2i(2, 4))
+	h0.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+	var h1 := _place(s, 1, Vector2i(5, 4))   # рядом с клеткой отброса (4,4)
+	h1.skills = [Consts.Skill.STAY_AWAY, Consts.Skill.HEAL, Consts.Skill.FLASH]
+	var enemy := _place(s, 3, Vector2i(3, 3))
+	_park(s, [0, 1, 3])
+	var hp0 := enemy.hp
+	var ob := _slots()
+	ob[0] = Order.make_move(3, [Vector2i(0, 1)] as Array[Vector2i])   # (3,3)->(3,4) рядом с h0
+	Resolver.new().resolve(s, _slots(), ob, Consts.Player.B)
+	_check(enemy.hp == hp0 - Consts.STAY_AWAY_DMG, "держись подальше: урон РОВНО один раз, без пинг-понга [%d]" % enemy.hp)
+	_check(enemy.cell == Vector2i(4, 4), "держись подальше: отброшен на (4,4) и там остановлен [%s]" % str(enemy.cell))
+	_check(enemy.alive, "держись подальше: враг жив (не зациклило до смерти)")
+
+
+# Шипы: тикают в конце каждого раунда CALTROPS_ROUNDS раз, затем снимаются.
+func test_caltrops_ticks_each_round() -> void:
+	var s := _fresh()
+	var hunter := _place(s, 0, Vector2i(3, 3))
+	hunter.skills = [Consts.Skill.CALTROPS, Consts.Skill.SNIPE, Consts.Skill.SHOTGUN]
+	hunter.mana = Consts.CALTROPS_MANA
+	var enemy := _place(s, 3, Vector2i(3, 4))
+	_park(s, [0, 3])
+	var hp0 := enemy.hp
+	var oa := _slots()
+	oa[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(3, 4))   # шипы на клетку врага
+	Resolver.new().resolve(s, oa, _slots(), Consts.Player.A)
+	_check(enemy.hp == hp0 - Consts.CALTROPS_DMG, "шипы: тик 1 (раунд размещения) [%d]" % enemy.hp)
+	# ещё два раунда врагу стоять на шипах
+	for tick in [2, 3]:
+		s.begin_round()
+		Resolver.new().resolve(s, _slots(), _slots(), s.first_player_this_round())
+		_check(enemy.hp == hp0 - tick * Consts.CALTROPS_DMG, "шипы: тик %d [%d]" % [tick, enemy.hp])
+	# 4-й раунд — шипы уже сняты, урона больше нет
+	s.begin_round()
+	Resolver.new().resolve(s, _slots(), _slots(), s.first_player_this_round())
+	_check(enemy.hp == hp0 - Consts.CALTROPS_ROUNDS * Consts.CALTROPS_DMG,
+		"шипы: после %d раундов больше не бьют [%d]" % [Consts.CALTROPS_ROUNDS, enemy.hp])
+	_check(s.spikes.is_empty(), "шипы: сняты после экспирации")
+
+
+# Быстрая перезарядка: одну способность можно занять в двух слотах (сервер это принимает).
+func test_fast_reload_repeats_ability() -> void:
+	var s := _fresh()
+	# Дробь (ABILITY1) без гейта слота — берём её, чтобы проверялся именно дедуп, а не гейт.
+	var u := _place(s, 0, Vector2i(3, 3))
+	u.skills = [Consts.Skill.SHOTGUN, Consts.Skill.PRECISE, Consts.Skill.FAST_RELOAD]  # AB1 = Дробь
+	u.mana = 10
+	var orders := _slots()
+	orders[0] = Order.make(0, Consts.Action.ABILITY1, Vector2i(4, 4))
+	orders[2] = Order.make(0, Consts.Action.ABILITY1, Vector2i(2, 2))
+	var sane := OrderValidator.sanitize(s, orders, Consts.Player.A)
+	_check(not sane[0].is_empty() and not sane[2].is_empty(), "быстрая перезарядка: дробь дважды разрешена")
+
+	# без пассивки второй тот же скилл срезается
+	u.skills = [Consts.Skill.SHOTGUN, Consts.Skill.PRECISE, Consts.Skill.SNIPER]
+	var sane2 := OrderValidator.sanitize(s, orders, Consts.Player.A)
+	_check(not sane2[0].is_empty() and sane2[2].is_empty(), "без быстрой перезарядки вторая дробь срезана")
+
+
+# Переполняющая мощь: -3 HP себе, +2 маны; суицид не даёт сопернику очков; прирост разблокирует.
+func test_power_surge_self_damage_and_mana() -> void:
+	var s := _fresh()
+	var u := _place(s, 2, Vector2i(3, 3))
+	u.skills = [Consts.Skill.POWER_SURGE, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	u.mana = 0
+	u.hp = 10
+	_park(s, [2])
+	var orders := _slots()
+	orders[0] = Order.make(2, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s, orders, _slots(), Consts.Player.A)
+	_check(u.mana == Consts.POWER_SURGE_MANA_GAIN, "переполняющая мощь: +%d маны [%d]" % [Consts.POWER_SURGE_MANA_GAIN, u.mana])
+	_check(u.hp == 10 - Consts.POWER_SURGE_SELF_DMG, "переполняющая мощь: -%d HP себе [%d]" % [Consts.POWER_SURGE_SELF_DMG, u.hp])
+
+	# суицид: HP ровно под урон — Камнешип гибнет, сопернику очков не капает
+	var s2 := _fresh()
+	var u2 := _place(s2, 2, Vector2i(3, 3))
+	u2.skills = [Consts.Skill.POWER_SURGE, Consts.Skill.JUMP, Consts.Skill.AMBUSH]
+	u2.mana = 0
+	u2.hp = Consts.POWER_SURGE_SELF_DMG
+	var sc_before: int = s2.score[Consts.Player.B]
+	var o2 := _slots()
+	o2[0] = Order.make(2, Consts.Action.ABILITY1)
+	Resolver.new().resolve(s2, o2, _slots(), Consts.Player.A)
+	_check(not u2.alive, "переполняющая мощь: добила себя")
+	_check(s2.score[Consts.Player.B] == sc_before, "переполняющая мощь: за суицид сопернику очков нет")
+
+	# прирост маны разблокирует дорогой скилл (та же модель, что у Медитации)
+	var s3 := _fresh()
+	var u3 := _place(s3, 2, Vector2i(3, 3))
+	u3.skills = [Consts.Skill.POWER_SURGE, Consts.Skill.ONSLAUGHT, Consts.Skill.JUMP]  # AB2 = Натиск (4)
+	u3.mana = Consts.ONSLAUGHT_MANA - 2   # без прироста на натиск не хватает
+	var o3 := _slots()
+	o3[0] = Order.make(2, Consts.Action.ABILITY1)               # мощь: +2 маны
+	o3[2] = Order.make(2, Consts.Action.ABILITY2, Vector2i(3, 4))   # натиск
+	_check(not OrderValidator.sanitize(s3, o3, Consts.Player.A)[2].is_empty(),
+		"переполняющая мощь разблокирует натиск приростом маны")

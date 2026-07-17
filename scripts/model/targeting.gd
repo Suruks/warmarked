@@ -158,6 +158,13 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 					if man >= 1 and man <= Consts.TRAP_RADIUS and board.is_passable(c) \
 							and _at(occ, c) == null and not state.grave_at(c):
 						out.append(c)
+		Consts.Skill.CALTROPS:  # любая passable клетка в радиусе (можно и под врагом — он и получит урон)
+			for dy in range(-Consts.CALTROPS_RANGE, Consts.CALTROPS_RANGE + 1):
+				for dx in range(-Consts.CALTROPS_RANGE, Consts.CALTROPS_RANGE + 1):
+					var c := origin + Vector2i(dx, dy)
+					var man := absi(dx) + absi(dy)
+					if man >= 1 and man <= Consts.CALTROPS_RANGE and board.is_passable(c):
+						out.append(c)
 		Consts.Skill.SNIPE:  # прямая 2..7, чистая линия
 			for d in Consts.DIRS4:
 				for r in range(Consts.SNIPE_MIN, Consts.SNIPE_MAX + 1):

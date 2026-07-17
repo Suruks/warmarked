@@ -24,7 +24,21 @@ func resolve(state: MatchState, orders_a: Array, orders_b: Array, first_player: 
 		# раундов никто не ходит дважды подряд (первый доигрывает раунд, второй начинает следующий).
 		if i < Consts.ORDER_SLOTS - 1:
 			_resolve_slot(state, os[i], second, i, events)
+	_tick_spikes(state, events)   # «конец раунда»: поля шипов бьют стоящих на них
 	return events
+
+
+# Шипы бьют в конце раунда: враг владельца, стоящий на клетке шипов, получает урон. Порядок по
+# клеткам детерминирован (снимок массива), урон идёт через _deal_damage (щиты/смерть/killи как обычно).
+func _tick_spikes(state: MatchState, events: Array) -> void:
+	for sp in state.spikes.duplicate():
+		var v := state.unit_at(sp.cell)
+		if v == null or v.owner == sp.owner_player:
+			continue
+		_push(events, state, Consts.EventType.TRAP_TRIGGER,
+			"Шипы на (%d,%d) ранят %s" % [sp.cell.x, sp.cell.y, v.full_name()])
+		_deal_damage(state, v, int(sp.get("dmg", Consts.CALTROPS_DMG)), sp.owner_player, events,
+			"шипы", state.get_unit(sp.owner_id))
 
 
 func _resolve_slot(state: MatchState, order: Order, player: int, slot: int, events: Array) -> void:
@@ -97,11 +111,15 @@ func _walk_path(state: MatchState, unit: Unit, path: Array, events: Array) -> vo
 # Перемещает юнита на клетку, логирует и проверяет капканы/засады. Кровавый след тикает
 # за КАЖДУЮ клетку, на которую юнит входит (см. _bleed_tick) — в т.ч. по одной за шаг
 # многоклеточного хода (см. _walk_path).
-func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String) -> void:
+# allow_stay_away — можно ли на этом входе сработать «Держись подальше». У толчка, который сам
+# же «Держись подальше» и вызвал, это false: иначе враг мог бы бесконечно скакать между двумя
+# Охотниками (A толкнул к B, B толкнул к A, ...). Капканы/засады на таком входе срабатывают как обычно.
+func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String,
+		allow_stay_away: bool = true) -> void:
 	unit.cell = cell
 	unit.moved_this_round = true   # «Снайпер»: любое перемещение считается движением
 	_push(events, state, ev_type, text, {"actor": unit.id, "to_cell": cell})
-	_check_triggers(state, unit, cell, events, src_player)
+	_check_triggers(state, unit, cell, events, src_player, allow_stay_away)
 	_bleed_tick(state, unit, events)
 
 
@@ -111,7 +129,8 @@ func _bleed_tick(state: MatchState, unit: Unit, events: Array) -> void:
 		_deal_damage(state, unit, Consts.BLEED_DMG, unit.bleed_owner, events, "кровотечение")
 
 
-func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Array, _src_player: int) -> void:
+func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Array, _src_player: int,
+		allow_stay_away: bool = true) -> void:
 	# Капканы бьют только ВРАГА владельца; мины (минное поле) — ЛЮБОГО, кто войдёт на клетку.
 	for t in state.traps.duplicate():
 		if t.cell != cell:
@@ -159,6 +178,32 @@ func _check_triggers(state: MatchState, unit: Unit, cell: Vector2i, events: Arra
 			_deal_damage(state, unit, _dmg(owner, Consts.Skill.AMBUSH, Consts.AMBUSH_DMG), owner.owner, events, "засада", owner)
 			if not unit.alive:
 				return
+	if allow_stay_away:
+		_check_stay_away(state, unit, cell, events)
+
+
+# «Держись подальше» (пассив Охотника): враг, вошедший в соседнюю клетку с таким Охотником,
+# получает урон и отбрасывается на 1 клетку ОТ него. Срабатывает один Охотник за вход (младший
+# по id — детерминированно); его толчок помечен allow_stay_away=false, поэтому цепочка «толкнули
+# к другому Охотнику» не зациклится. Пассив постоянный — не расходуется.
+func _check_stay_away(state: MatchState, unit: Unit, cell: Vector2i, events: Array) -> void:
+	var best: Unit = null
+	for h in state.units:
+		if not h.alive or h.owner == unit.owner or not h.has_skill(Consts.Skill.STAY_AWAY):
+			continue
+		if _cheb(h.cell, cell) != 1:
+			continue
+		if best == null or h.id < best.id:
+			best = h
+	if best == null:
+		return
+	_push(events, state, Consts.EventType.ABILITY,
+		"Держись подальше! %s отгоняет %s" % [best.full_name(), unit.full_name()],
+		{"actor": best.id, "target_cell": cell})
+	_deal_damage(state, unit, _dmg(best, Consts.Skill.STAY_AWAY, Consts.STAY_AWAY_DMG), best.owner, events,
+		"держись подальше", best)
+	if unit.alive:
+		_knockback(state, unit, _dir_sign(unit.cell - best.cell), best.owner, events, false)
 
 
 # Отталкивание на несколько клеток в направлении dir (для Дуновения ветра). Каждый шаг:
@@ -180,8 +225,10 @@ func _shove(state: MatchState, unit: Unit, dir: Vector2i, cells: int, src_player
 			return
 
 
-# Толчок на 1 клетку в направлении dir; в препятствие/край/юнит -> толчок гасится без урона
-func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, events: Array) -> void:
+# Толчок на 1 клетку в направлении dir; в препятствие/край/юнит -> толчок гасится без урона.
+# allow_stay_away пробрасывается во вход: у толчка от самого «Держись подальше» он false.
+func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, events: Array,
+		allow_stay_away: bool = true) -> void:
 	if dir == Vector2i.ZERO:
 		return
 	var dest := unit.cell + dir
@@ -191,7 +238,7 @@ func _knockback(state: MatchState, unit: Unit, dir: Vector2i, src_player: int, e
 			"%s упирается в препятствие -> отброс не проходит" % unit.full_name())
 	else:
 		_enter(state, unit, dest, events, src_player, Consts.EventType.KNOCKBACK,
-			"%s отброшен на (%d,%d)" % [unit.full_name(), dest.x, dest.y])
+			"%s отброшен на (%d,%d)" % [unit.full_name(), dest.x, dest.y], allow_stay_away)
 
 
 # ---------------------------------------------------------------- урон / смерть
@@ -444,6 +491,8 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.SHARDS: _sk_shards(state, unit, events)
 		Consts.Skill.OVERLOAD: _sk_overload(state, unit, et, events)
 		Consts.Skill.SWAP: _sk_swap(state, unit, et, events)
+		Consts.Skill.CALTROPS: _sk_caltrops(state, unit, et, events)
+		Consts.Skill.POWER_SURGE: _sk_power_surge(state, unit, events)
 
 
 # Капкан — не ставится в занятую юнитом или могилой клетку
@@ -836,6 +885,39 @@ func _sk_meditation(state: MatchState, unit: Unit, events: Array) -> void:
 	unit.mana += Consts.MEDITATION_GAIN
 	_push(events, state, Consts.EventType.MANA,
 		"%s медитирует: +%d маны" % [unit.full_name(), Consts.MEDITATION_GAIN])
+
+
+# Шипы — кладёт поле шипов на клетку. Тикает в конце каждого раунда (см. _tick_spikes),
+# живёт CALTROPS_ROUNDS раундов. На занятую шипами клетку повторно не ставим.
+func _sk_caltrops(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if not state.board.is_passable(et):
+		_push(events, state, Consts.EventType.FIZZLE, "Шипы: клетку (%d,%d) не занять" % [et.x, et.y])
+		return
+	for sp in state.spikes:
+		if sp.cell == et:
+			_push(events, state, Consts.EventType.FIZZLE, "Шипы: на (%d,%d) уже лежат шипы" % [et.x, et.y])
+			return
+	state.spikes.append({
+		"cell": et, "owner_player": unit.owner, "owner_id": unit.id,
+		"expire_round": state.round_num + Consts.CALTROPS_ROUNDS - 1,
+		"dmg": _dmg(unit, Consts.Skill.CALTROPS, Consts.CALTROPS_DMG),
+	})
+	_push(events, state, Consts.EventType.TRAP_PLACED, "Шипы разложены на (%d,%d)" % [et.x, et.y])
+
+
+# Переполняющая мощь — платит собой: POWER_SURGE_SELF_DMG урона себе (мимо митигаций — это цена,
+# не «атака») и +POWER_SURGE_MANA_GAIN маны. Ману даём ПЕРВОЙ (её и засчитывает разблокировка
+# скиллов), затем урон — если он добивает Камнешип, поздние слоты всё равно физзлят (юнит мёртв).
+func _sk_power_surge(state: MatchState, unit: Unit, events: Array) -> void:
+	unit.mana += Consts.POWER_SURGE_MANA_GAIN
+	_push(events, state, Consts.EventType.MANA,
+		"%s: переполняющая мощь, +%d маны" % [unit.full_name(), Consts.POWER_SURGE_MANA_GAIN])
+	unit.hp -= Consts.POWER_SURGE_SELF_DMG
+	_push(events, state, Consts.EventType.DAMAGE,
+		"%s наносит себе %d -> HP %d/%d" % [unit.full_name(), Consts.POWER_SURGE_SELF_DMG, max(unit.hp, 0), unit.max_hp],
+		{"victim": unit.id, "amount": Consts.POWER_SURGE_SELF_DMG})
+	if unit.hp <= 0:
+		_kill(state, unit, unit.owner, events, null)   # самоубийство: src == owner -> сопернику очков нет
 
 
 func _sk_jump(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:

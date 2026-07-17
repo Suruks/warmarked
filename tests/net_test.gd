@@ -16,6 +16,7 @@ func _initialize() -> void:
 	test_leaderboard_protocol()
 	test_ai_session_is_server_side()
 	test_ai_match_lockstep_with_client_copy()
+	test_reconnect_replay_matches_server()
 	print("=== Итог: %d PASS, %d FAIL ===" % [_pass, _fail])
 	quit(1 if _fail > 0 else 0)
 
@@ -129,6 +130,59 @@ func test_blind_gate_and_lockstep() -> void:
 
 	_check(_snap_eq(srv.state, cli), "лок-степ: сервер и клиент в одинаковом состоянии")
 	_check(srv.current_round() == 2 and cli.round_num == 2, "оба продвинулись на раунд 2")
+
+
+# Реконнект: вернувшийся клиент восстанавливает состояние, переиграв ИСТОРИЮ разрешённых раундов
+# (как это делает main.gd/_on_match_resumed по данным Net.resume_match_rpc). Результат обязан до
+# последнего HP совпасть с серверной сессией — иначе игрок «вернётся» в рассинхронизированный матч.
+func test_reconnect_replay_matches_server() -> void:
+	var afo := true
+	var lo_a := Loadout.default_team_net()
+	var lo_b := Loadout.default_team_net()
+
+	# сервер играет несколько раундов, копя history ровно как Net.submit_orders
+	var srv := MatchSession.new(afo, lo_a, lo_b, 0)
+	var history: Array = []
+	var moves := [
+		[_move_slots(0, Vector2i(0, -1)), _move_slots(3, Vector2i(0, 1))],
+		[_move_slots(1, Vector2i(1, 0)),  _move_slots(4, Vector2i(-1, 0))],
+		[_move_slots(0, Vector2i(-1, 0)), _move_slots(5, Vector2i(0, -1))],
+	]
+	for pair in moves:
+		srv.submit(0, pair[0])
+		srv.submit(1, pair[1])
+		var oa_data := NetProtocol.orders_to_data(srv.orders_of(0))
+		var ob_data := NetProtocol.orders_to_data(srv.orders_of(1))
+		var res := srv.resolve()
+		_check(res.winner < 0, "реконнект-сетап: раунд %d не завершил матч" % res.round)
+		history.append([oa_data, ob_data])
+
+	# «переподключение»: копии клиента нет — собираем с нуля и переигрываем history молча
+	var cli := MatchState.new()
+	cli.setup(Loadout.sanitize_team_net(lo_a), Loadout.sanitize_team_net(lo_b), 0)
+	cli.a_first_on_odd = afo
+	cli.begin_round()
+	var r := Resolver.new()
+	for rd in history:
+		var oa := NetProtocol.orders_from_data(rd[0])
+		var ob := NetProtocol.orders_from_data(rd[1])
+		r.resolve(cli, oa, ob, cli.first_player_this_round())
+		var se: Array = []
+		cli.score_round(se)
+		cli.begin_round()
+
+	_check(_snap_eq(srv.state, cli), "реконнект: переигранное состояние совпало с серверной сессией")
+	_check(srv.current_round() == cli.round_num,
+		"реконнект: догнали текущий раунд [%d == %d]" % [srv.current_round(), cli.round_num])
+
+	# история пуста (дисконнект в 1-м раунде) — клиент просто на 1-м раунде, без рассинхрона
+	var fresh := MatchState.new()
+	fresh.setup(Loadout.sanitize_team_net(lo_a), Loadout.sanitize_team_net(lo_b), 0)
+	fresh.a_first_on_odd = afo
+	fresh.begin_round()
+	var srv2 := MatchSession.new(afo, lo_a, lo_b, 0)
+	_check(_snap_eq(srv2.state, fresh) and fresh.round_num == 1,
+		"реконнект: пустая история -> клиент на 1-м раунде, совпадает с сервером")
 
 
 func _snap_eq(a: MatchState, b: MatchState) -> bool:

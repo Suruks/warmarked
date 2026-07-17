@@ -29,6 +29,8 @@ enum Skill {
 	KNOCKDOWN,                                                 # Охотник — сбить с ног
 	GUST,                                                      # Фея — дуновение ветра
 	HOOK,                                                      # Нейтральный — крюк
+	STAY_AWAY, CALTROPS, FAST_RELOAD,                          # Охотник — держись подальше / шипы / быстрая перезарядка
+	POWER_SURGE,                                               # Камнешип — переполняющая мощь
 }
 
 const SKILLS_PER_HERO := 3
@@ -38,7 +40,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 26
+const PROTOCOL_VERSION := 28
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -63,7 +65,7 @@ const BOARD_W := 7
 const BOARD_H := 7
 
 # --- Матч ---
-const WIN_SCORE := 6
+const WIN_SCORE := 8
 # Ничья: оба игрока набрали WIN_SCORE в одном и том же раунде (например, взаимный размен
 # киллами). Отдельное значение от Player, чтобы MatchState.winner мог различить «победил A/B»
 # и «оба одновременно» без спецфлага.
@@ -71,7 +73,7 @@ const DRAW := 2
 
 # Килл — это ТЕМП, а не победа: пока враг лежит, вы и так забираете точки. Прямая награда
 # держится маленькой, иначе килл суммарно стоит больше половины матча.
-const KILL_POINTS := 1
+const KILL_POINTS := 2
 const CONTROL_POINTS_PER_ROUND := 1   # мажоритарная награда, кэп +1/раунд
 
 # --- Юниты ---
@@ -193,7 +195,7 @@ const STEP_MANA := 1               # Сходить: ход
 const STEP_RANGE := 2              # на сколько клеток
 const BLOCK_MANA := 0              # Блок: щит-буфер
 const BLOCK_AMOUNT := 3            # сколько урона поглощает Блок
-const SWAP_ALLY_MANA := 1          # Рокировка: обмен местами с соседним союзником
+const SWAP_ALLY_MANA := 0          # Рокировка: обмен местами с соседним союзником
 const SELF_HEAL_MANA := 1
 const SELF_HEAL_AMOUNT := 3        # Хил себе: +HP
 const MEDITATION_MANA := 0
@@ -215,7 +217,7 @@ const MANASTEAL_DMG := 3
 const MANASTEAL_AMOUNT := 3
 
 # Оковы: враг в радиусе SHACKLES_RANGE на SHACKLES_TURNS ходов теряет базовую атаку
-const SHACKLES_MANA := 3
+const SHACKLES_MANA := 2
 const SHACKLES_TURNS := 3
 const SHACKLES_RANGE := 2
 
@@ -269,6 +271,28 @@ const REFLEXES_MANA := 1
 const REFLEXES_MANA_GAIN := 1
 
 const CRYSTAL_PASSIVE_REDUCTION := 0   # пассивка снята (0 = без снижения урона)
+
+# --- Новые умения ---
+# Держись подальше (Охотник, пассив): враг, ВОШЕДШИЙ в соседнюю клетку (Chebyshev 1) с этим
+# Охотником, получает урон и отбрасывается на 1 клетку от него. Постоянно, маны не стоит.
+const STAY_AWAY_DMG := 3
+
+# Шипы (Охотник): кладёт на клетку в радиусе CALTROPS_RANGE поле шипов на CALTROPS_ROUNDS раундов;
+# в конце КАЖДОГО раунда враг, стоящий на клетке, получает CALTROPS_DMG урона.
+const CALTROPS_MANA := 2
+const CALTROPS_DMG := 2
+const CALTROPS_RANGE := 2      # манхэттен, как у Капкана
+const CALTROPS_ROUNDS := 3     # сколько раундов лежат и тикают (включая раунд размещения)
+
+# Быстрая перезарядка (Охотник, пассив): снимает ограничение «одну способность не дважды за
+# раунд» — этим героем можно повторять способности в разных слотах (ход и базовая атака — нет).
+# Отдельных чисел не требует.
+
+# Переполняющая мощь (Камнешип): наносит СЕБЕ POWER_SURGE_SELF_DMG урона и получает
+# POWER_SURGE_MANA_GAIN маны. Прирост засчитывается разблокировкой скиллов (mana_gain).
+const POWER_SURGE_MANA := 0
+const POWER_SURGE_SELF_DMG := 3
+const POWER_SURGE_MANA_GAIN := 2
 
 const ORDER_SLOTS := 4
 

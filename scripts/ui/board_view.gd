@@ -381,6 +381,8 @@ func _draw() -> void:
 	_draw_routes()
 	for t in snap.get("traps", []):
 		_draw_hazard(t.cell, Icons.for_skill(Consts.Skill.TRAP), t.owner)
+	for sp in snap.get("spikes", []):
+		_draw_hazard(sp.cell, Icons.for_skill(Consts.Skill.CALTROPS), sp.owner)
 	for a in snap.get("ambushes", []):
 		_draw_hazard(a.cell, Icons.for_skill(Consts.Skill.AMBUSH), a.owner)
 	for g in ghosts:

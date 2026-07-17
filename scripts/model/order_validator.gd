@@ -21,21 +21,40 @@ extends RefCounted
 ##     разошёлся с реальностью.
 
 
+# Хватает ли герою маны на всю последовательность его действий за раунд. seq — по слотам 0..N:
+# [cost, gain] потраченной/полученной героем маны за этот слот, либо null (герой в слоте не
+# действует). Модель ровно как у резолвера: бегущий банк стартует со start_mana, слот тратит cost
+# (обязан хватить в этот момент), ПОСЛЕ чего в банк идёт нетто gain-cost — то есть прирост маны
+# помогает ПОЗДНИМ слотам, а не своему. Ни разу не ушёл в минус → true.
+#
+# Единый авторитет по мане: и сервер (_slot_legal ниже), и планировщик (PlanningPanel) считают
+# ману этой же моделью — иначе клиент разблокировал бы скилл, который сервер срежет в пустой.
+static func mana_sequence_ok(seq: Array, start_mana: int) -> bool:
+	var bank := start_mana
+	for cg in seq:
+		if cg == null:
+			continue
+		if bank < cg[0]:
+			return false
+		bank += cg[1] - cg[0]
+	return true
+
+
 # Возвращает НОВЫЙ массив из ORDER_SLOTS приказов: нелегальные заменены на пустые.
 static func sanitize(state: MatchState, orders: Array, player: int) -> Array:
 	var out: Array = []
-	var spent := {}   # hero_id -> уже зарезервировано маны
+	var bank := {}    # hero_id -> текущая мана героя по ходу слотов (бегущий банк, см. mana_sequence_ok)
 	var seen := {}    # "hero:action" -> скилл уже занят в другом слоте
 	for i in Consts.ORDER_SLOTS:
 		var o: Order = orders[i] if i < orders.size() else Order.empty()
 		# Второй игрок раунда не действует в последнем слоте — срезаем в пустой приказ.
-		var ok := state.acts_in_slot(player, i) and _slot_legal(state, o, player, i, spent, seen)
+		var ok := state.acts_in_slot(player, i) and _slot_legal(state, o, player, i, bank, seen)
 		out.append(o if ok else Order.empty())
 	return out
 
 
-# Побочный эффект: при легальном приказе резервирует ману и помечает скилл использованным.
-static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spent: Dictionary, seen: Dictionary) -> bool:
+# Побочный эффект: при легальном приказе двигает бегущий банк маны героя и помечает скилл занятым.
+static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, bank: Dictionary, seen: Dictionary) -> bool:
 	if o == null or o.is_empty():
 		return false
 	var u := state.get_unit(o.hero_id)
@@ -54,16 +73,22 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 			Consts.Action.ABILITY2, Consts.Action.ABILITY3, Consts.Action.ABILITY4]):
 		return false
 
+	# «Быстрая перезарядка» снимает дедуп ТОЛЬКО для способностей (не для базовой атаки): такой
+	# герой может повторять один скилл в разных слотах. Ход дедупится выше и её не касается.
+	var is_ability := o.action != Consts.Action.ATTACK
+	var dedup := not (is_ability and u.repeats_abilities())
 	var key := "%d:%d" % [o.hero_id, o.action]
-	if seen.has(key):
+	if dedup and seen.has(key):
 		return false
 	var def := HeroDefs.for_action(u.hero_type, o.action, u.skills, u.mana_discount)
 	if def.passive:
 		return false   # пассивку нельзя активировать
 	if def.slot_gate.size() > 0 and not (slot in def.slot_gate):
 		return false
-	var used: int = spent.get(o.hero_id, 0)
-	if used + def.mana > u.mana:
+	# Бегущий банк маны героя (лениво стартует с текущей маны). Прирост от Медитации в раннем слоте
+	# уже учтён в банке к этому слоту — как и у резолвера, тратящего ману последовательно.
+	var mana_now: int = bank.get(o.hero_id, u.mana)
+	if mana_now < def.mana:
 		return false
 	# Отступление и Сходить несут путь (как ход), а не одиночное смещение — валидируем шаги
 	var skill := HeroDefs.skill_of_action(u.hero_type, o.action, u.skills)
@@ -83,8 +108,9 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, spe
 	# разрешения и просто не сработает, если по-прежнему нелегален. Здесь остаются лишь структурные
 	# проверки (шаги хода/пути, мана, дубли, гейт слота, пассивка), которые резолвер не делает.
 
-	seen[key] = true
-	spent[o.hero_id] = used + def.mana
+	if dedup:
+		seen[key] = true
+	bank[o.hero_id] = mana_now + def.mana_gain - def.mana   # нетто; прирост достаётся ПОЗДНИМ слотам
 	return true
 
 
@@ -196,6 +222,8 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _cheb(off) >= 1 and _cheb(off) <= Consts.GUST_RANGE
 		Consts.Skill.HOOK:        # прямая, 1..HOOK_RANGE
 			return _ray(off) >= 1 and _ray(off) <= Consts.HOOK_RANGE
+		Consts.Skill.CALTROPS:    # клетка в радиусе CALTROPS_RANGE (манхэттен)
+			return _man(off) >= 1 and _man(off) <= Consts.CALTROPS_RANGE
 	return false
 
 

@@ -14,6 +14,7 @@ var a_first_on_odd: bool = true          # жеребьёвка: A ходит п
 # Персистентные эффекты
 var traps: Array = []      # [{cell:Vector2i, owner_player:int, owner_id:int, expire_round:int}]
 var ambushes: Array = []   # [{owner_id:int, expire_round:int}]
+var spikes: Array = []     # Шипы: [{cell, owner_player, owner_id, expire_round, dmg}] — тикают в конце раунда (Resolver)
 
 var winner: int = -1       # Consts.Player или -1
 
@@ -167,6 +168,12 @@ func begin_round() -> Array:
 		if a.expire_round >= round_num and owner != null and owner.alive:
 			kept_amb.append(a)
 	ambushes = kept_amb
+	# Шипы: как капканы, живут до expire_round (тикают в конце раунда — см. Resolver._tick_spikes)
+	var kept_spikes: Array = []
+	for sp in spikes:
+		if sp.expire_round >= round_num:
+			kept_spikes.append(sp)
+	spikes = kept_spikes
 	_blessing_heal(events)
 	return events
 
@@ -297,6 +304,9 @@ func clone() -> MatchState:
 	s.ambushes = []
 	for a in ambushes:
 		s.ambushes.append(a.duplicate(true))
+	s.spikes = []
+	for sp in spikes:
+		s.spikes.append(sp.duplicate(true))
 	return s
 
 
@@ -307,6 +317,9 @@ func snapshot() -> Dictionary:
 	var ts: Array = []
 	for t in traps:
 		ts.append({"cell": t.cell, "owner": t.owner_player})
+	var sps: Array = []
+	for sp in spikes:
+		sps.append({"cell": sp.cell, "owner": sp.owner_player})
 	var ams: Array = []
 	for a in ambushes:
 		var owner := get_unit(a.owner_id)
@@ -315,6 +328,7 @@ func snapshot() -> Dictionary:
 	return {
 		"units": us,
 		"traps": ts,
+		"spikes": sps,
 		"ambushes": ams,
 		"score_a": score[Consts.Player.A],
 		"score_b": score[Consts.Player.B],

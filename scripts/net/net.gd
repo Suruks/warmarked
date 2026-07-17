@@ -13,7 +13,7 @@ signal version_mismatch(server_version: int, client_version: int)
 signal round_revealed(round_num: int, orders_a: Array, orders_b: Array)
 signal opponent_progress(filled: Array)   # какие слоты соперник уже запланировал
 signal opponent_gone
-signal auth_ok(login: String, token: String, rating: int, loadout: Array, difficulty_unlocked: int, ai_best: int, settings: Dictionary)
+signal auth_ok(login: String, token: String, rating: int, loadout: Array, difficulty_unlocked: int, ai_best: int, settings: Dictionary, in_match: bool)
 signal auth_failed(reason: String)
 signal loadout_saved
 signal leaderboard_updated(rows: Array)   # [{login, level}] — таблица рекордов против ИИ
@@ -21,21 +21,41 @@ signal leaderboard_updated(rows: Array)   # [{login, level}] — таблица 
 signal ai_matched(a_first_on_odd: bool, loadout_a: Array, loadout_b: Array, map_index: int, level: int, mod_seed: int)
 signal ai_match_denied(unlocked: int)     # сервер не дал играть этот уровень (прогресс не тот)
 signal ai_progress(new_record: bool, new_unlock: bool)   # итог боя с ИИ; зеркала Difficulty уже обновлены
+# Возврат в матч после переподключения: всё, из чего клиент заново собирает свою копию и догоняет
+# текущий раунд, переиграв историю разрешённых раундов (см. main.gd/_on_match_resumed).
+signal match_resumed(slot: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array, map_index: int,
+	ai_level: int, mod_seed: int, history: Array, already_submitted: bool, opp_submitted: bool)
+signal opponent_disconnected   # соперник отвалился, но матч ждёт его возвращения (не окончен)
+signal opponent_reconnected    # соперник вернулся в матч
 
 const DEFAULT_PORT := 8910
 const DB_PATH := "user://warmarked.db"
+# Сколько сервер держит матч живым после дисконнекта игрока, ожидая его возвращения. Не вернулся —
+# матч бросается (соперник узнаёт, что тот вышел). Иначе брошенные матчи копились бы вечно:
+# состояние живёт в памяти сервера и переживает только его аптайм, но и в его пределах течёт.
+const RECONNECT_GRACE_SEC := 90.0
+const BOT_USER := -1   # заглушка user_id для слота бота в бою с ИИ (у аккаунтов id всегда ≥ 1)
 
 var is_server := false
 var my_index := -1
 var player_db: PlayerDB   # только на сервере
 
 # --- серверные структуры ---
+# Матч живёт не по peer_id (тот эфемерен, меняется при переподключении), а по СЛОТАМ игроков.
+# match_id -> {
+#   session,                 MatchSession — авторитетное состояние
+#   users:[uid0, uid1],      стабильная привязка к аккаунтам (BOT_USER для слота бота); по ней и находят матч на реконнекте
+#   peers:[pid0, pid1],      текущий транспортный peer каждого слота; -1 — слот сейчас без связи
+#   afo,map_index,lo_a,lo_b,ai_level,mod_seed,   параметры, из которых клиент пересобирает копию матча
+#   history:[[oa,ob],...],   разрешённые раунды (сериализованные приказы) — для переигровки на реконнекте
+# }
 var _queue: Array = []                 # peer_id ожидающих
-var _matches: Dictionary = {}          # match_id -> {session, peers:[p0,p1]}
-var _peer_match: Dictionary = {}       # peer_id -> match_id
-var _peer_index: Dictionary = {}       # peer_id -> 0/1
+var _matches: Dictionary = {}
+var _peer_match: Dictionary = {}       # peer_id -> match_id (эфемерная связь текущего сокета)
+var _peer_index: Dictionary = {}       # peer_id -> слот 0/1
 var _peer_loadout: Dictionary = {}     # peer_id -> сетевой кит (санированный)
 var _peer_user: Dictionary = {}        # peer_id -> {user_id, login} — только авторизованные попадают в очередь
+var _user_match: Dictionary = {}       # user_id -> match_id — переживает смену peer, по ней возвращают в матч
 var _next_match_id := 1
 
 
@@ -193,13 +213,24 @@ func _on_peer_disconnected(id: int) -> void:
 	_queue.erase(id)
 	_peer_loadout.erase(id)
 	_peer_user.erase(id)
-	if _peer_match.has(id):
-		var mid: int = _peer_match[id]
-		var m: Dictionary = _matches.get(mid, {})
-		for p in m.get("peers", []):
-			if p != id and multiplayer.get_peers().has(p):
-				rpc_id(p, "notify_opponent_gone")
-		_end_match(mid)
+	if not _peer_match.has(id):
+		return
+	# Дисконнект больше НЕ рушит матч: слот освобождается (peers[slot] = -1), а сам матч ждёт
+	# возвращения игрока по его user_id. Живой соперник узнаёт «отключился», а не «вышел» —
+	# и продолжает ждать. Приказы уже сходившего слота остаются в session: раунд разрешится, как
+	# только сходит второй, а догонит вернувшийся по history.
+	var mid: int = _peer_match[id]
+	var m: Dictionary = _matches.get(mid, {})
+	var slot: int = _peer_index.get(id, -1)
+	_peer_match.erase(id)     # старый peer мёртв — его эфемерные связи чистим
+	_peer_index.erase(id)
+	if m.is_empty() or slot < 0:
+		return
+	m.peers[slot] = -1
+	for p in _connected_peers(m):
+		rpc_id(p, "notify_opponent_disconnected")
+	print("[server] матч %d: слот %d без связи, жду возвращения %.0fс" % [mid, slot, RECONNECT_GRACE_SEC])
+	_schedule_abandon(mid)
 
 
 # ============================================================ RPC: клиент → сервер
@@ -226,13 +257,19 @@ func req_resume_session(token: String = "") -> void:
 
 
 func _respond_auth(sender: int, res: Dictionary) -> void:
-	if res.get("ok", false):
-		_peer_user[sender] = {"user_id": res["user_id"], "login": res["login"]}
-		rpc_id(sender, "auth_ok_rpc", String(res["login"]), String(res["token"]), int(res["rating"]),
-			res.get("loadout", []), int(res.get("difficulty_unlocked", Difficulty.TIER)),
-			int(res.get("ai_best", 0)), res.get("settings", {}))
-	else:
+	if not res.get("ok", false):
 		rpc_id(sender, "auth_failed_rpc", String(res.get("error", "unknown")))
+		return
+	var user_id: int = res["user_id"]
+	_peer_user[sender] = {"user_id": user_id, "login": res["login"]}
+	# Есть ли у этого аккаунта живой (брошенный на дисконнекте) матч, в который надо вернуть?
+	# Флаг едет вместе с auth_ok, чтобы клиент не ушёл в меню/очередь, а дождался resume_match_rpc.
+	var reattached := _reattach_to_match(sender, user_id)
+	rpc_id(sender, "auth_ok_rpc", String(res["login"]), String(res["token"]), int(res["rating"]),
+		res.get("loadout", []), int(res.get("difficulty_unlocked", Difficulty.TIER)),
+		int(res.get("ai_best", 0)), res.get("settings", {}), reattached)
+	if reattached:
+		_send_resume(sender, _peer_match[sender])
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -308,9 +345,11 @@ func _start_ai_match_for(peer: int, level: int) -> void:
 	# ролит сам: бот не должен играть зеркалом кита игрока.
 	var lo_a: Array = _peer_loadout.get(peer, Loadout.default_team_net())
 	var lo_b: Array = Loadout.canon_team_net(Loadout.random_team())
-	_matches[mid] = {"session": MatchSession.new(afo, lo_a, lo_b, map_index, level, mod_seed), "peers": [peer]}
-	_peer_match[peer] = mid
-	_peer_index[peer] = 0   # человек всегда играет за A, бот — за B
+	# Слот 1 — бот: без связи (peers[1] = -1) и без аккаунта (users[1] = BOT_USER) навсегда.
+	# Человек (слот 0) так же может отвалиться и вернуться, как в PvP.
+	var users := [_peer_user[peer]["user_id"], BOT_USER]
+	_register_match(mid, MatchSession.new(afo, lo_a, lo_b, map_index, level, mod_seed), users, [peer, -1],
+		lo_a, lo_b, afo, map_index, level, mod_seed)
 	rpc_id(peer, "ai_match_found_rpc", afo, lo_a, lo_b, map_index, level, mod_seed)
 	print("[server] матч %d: peer %d против ИИ, уровень %d (map=%d, seed=%d)" % [mid, peer, level, map_index, mod_seed])
 
@@ -332,30 +371,34 @@ func req_leave_match() -> void:
 	if not _peer_match.has(sender):
 		return
 	var mid: int = _peer_match[sender]
-	for p in _matches.get(mid, {}).get("peers", []):
-		if p != sender and multiplayer.get_peers().has(p):
+	# Выход по своей воле — это КОНЕЦ матча (в отличие от дисконнекта): соперник узнаёт «вышел»,
+	# возвращаться будет некуда. Именно поэтому дисконнект и явный выход разведены на два пути.
+	for p in _connected_peers(_matches.get(mid, {})):
+		if p != sender:
 			rpc_id(p, "notify_opponent_gone")
 	print("[server] матч %d: peer %d вышел" % [mid, sender])
 	_end_match(mid)
 
 
 ## Исход боя с ИИ на стороне сервера: победа человека (игрок A) двигает прогресс и, если это
-## личный рекорд, — лидерборд (что именно меняется, решает PlayerDB.apply_ai_win).
-func _finish_ai_match(peer: int, s: MatchSession, winner: int) -> void:
-	if not _peer_user.has(peer):
-		return
-	var user_id: int = _peer_user[peer]["user_id"]
+## личный рекорд, — лидерборд (что именно меняется, решает PlayerDB.apply_ai_win). Идентичность
+## игрока берём из матча (users[0]), а не из peer: peer мог смениться после переподключения.
+func _finish_ai_match(mid: int, winner: int) -> void:
+	var m: Dictionary = _matches[mid]
+	var user_id: int = m.users[0]
+	var peer: int = m.peers[0]
 	var res := {"record": false, "unlock": false}
 	if winner == Consts.Player.A:
 		# Отряд в БД пишется тот, которым сервер этот матч и играл, а не присланный «на слово».
-		res = player_db.apply_ai_win(user_id, s.ai_level, _peer_loadout.get(peer, []))
-		print("[server] peer %d победил ИИ на уровне %d (рекорд=%s, открыт блок=%s)"
-			% [peer, s.ai_level, res.record, res.unlock])
+		res = player_db.apply_ai_win(user_id, m.ai_level, m.lo_a)
+		print("[server] user %d победил ИИ на уровне %d (рекорд=%s, открыт блок=%s)"
+			% [user_id, m.ai_level, res.record, res.unlock])
 	# Прогресс едет клиенту ДО раскрытия последнего раунда: раскрытие клиент проигрывает
 	# анимацией в несколько секунд и лишь потом показывает экран победы, а порядок надёжных
 	# RPC сохраняется — значит к экрану победы зеркала Difficulty гарантированно свежие.
-	rpc_id(peer, "ai_progress_rpc", player_db.load_difficulty_unlocked(user_id),
-		player_db.load_ai_best(user_id), res.record, res.unlock)
+	if peer >= 1:
+		rpc_id(peer, "ai_progress_rpc", player_db.load_difficulty_unlocked(user_id),
+			player_db.load_ai_best(user_id), res.record, res.unlock)
 	if res.record:
 		_broadcast_leaderboard()
 
@@ -397,7 +440,7 @@ func submit_progress(filled: Array) -> void:
 	if not _peer_match.has(sender):
 		return
 	var m: Dictionary = _matches[_peer_match[sender]]
-	for p in m.peers:
+	for p in _connected_peers(m):
 		if p != sender:
 			rpc_id(p, "opp_progress_rpc", filled)
 
@@ -431,8 +474,12 @@ func submit_orders(round_num: int, data: Array) -> void:
 	var res := s.resolve()
 	# Исход боя с ИИ считает сам сервер — по СВОЕМУ резолву, а не по слову клиента.
 	if s.ai_level > 0 and res.winner >= 0:
-		_finish_ai_match(sender, s, res.winner)
-	for p in m.peers:
+		_finish_ai_match(mid, res.winner)
+	# Незавершённый раунд копим в history: вернувшийся игрок переиграет его и догонит текущий.
+	# Победный раунд не пишем — матч тут же кончается, возвращаться некуда (его удаляет _end_match).
+	if res.winner < 0:
+		(m.history as Array).append([oa, ob])
+	for p in _connected_peers(m):
 		rpc_id(p, "reveal_round", rn, oa, ob)
 	print("[server] матч %d: раунд %d раскрыт (winner=%d)" % [mid, rn, res.winner])
 	if res.winner >= 0:
@@ -464,31 +511,120 @@ func _create_match(p0: int, p1: int) -> void:
 	# Оба кита едут обоим клиентам: детерминированная копия матча должна совпасть с серверной
 	var lo_a: Array = _peer_loadout.get(p0, Loadout.default_team_net())
 	var lo_b: Array = _peer_loadout.get(p1, Loadout.default_team_net())
-	_matches[mid] = {"session": MatchSession.new(afo, lo_a, lo_b, map_index), "peers": [p0, p1]}
-	_peer_match[p0] = mid
-	_peer_match[p1] = mid
-	_peer_index[p0] = 0
-	_peer_index[p1] = 1
+	var users := [_peer_user[p0]["user_id"], _peer_user[p1]["user_id"]]
+	_register_match(mid, MatchSession.new(afo, lo_a, lo_b, map_index), users, [p0, p1],
+		lo_a, lo_b, afo, map_index, 0, 0)
 	rpc_id(p0, "match_found_rpc", 0, afo, lo_a, lo_b, map_index)
 	rpc_id(p1, "match_found_rpc", 1, afo, lo_a, lo_b, map_index)
 	print("[server] матч %d: peer %d = A, peer %d = B (a_first_on_odd=%s, map=%d)" % [mid, p0, p1, afo, map_index])
 
 
+# Заносит матч во все серверные структуры разом (общее для PvP и боя с ИИ). Слот -1 в peers —
+# «без связи» (у бота в бою с ИИ слот 1 такой всегда). users с BOT_USER в _user_match не попадают.
+func _register_match(mid: int, session: MatchSession, users: Array, peers: Array,
+		lo_a: Array, lo_b: Array, afo: bool, map_index: int, ai_level: int, mod_seed: int) -> void:
+	_matches[mid] = {
+		"session": session, "users": users, "peers": peers,
+		"lo_a": lo_a, "lo_b": lo_b, "afo": afo, "map_index": map_index,
+		"ai_level": ai_level, "mod_seed": mod_seed, "history": [],
+	}
+	for slot in peers.size():
+		var pid: int = peers[slot]
+		if pid >= 1:
+			_peer_match[pid] = mid
+			_peer_index[pid] = slot
+		if users[slot] != BOT_USER:
+			_user_match[users[slot]] = mid
+
+
 func _end_match(mid: int) -> void:
 	var m: Dictionary = _matches.get(mid, {})
 	for p in m.get("peers", []):
-		_peer_match.erase(p)
-		_peer_index.erase(p)
-		_peer_loadout.erase(p)
+		if p >= 1:   # -1 — слот без связи (бот или отвалившийся игрок), чистить нечего
+			_peer_match.erase(p)
+			_peer_index.erase(p)
+			_peer_loadout.erase(p)
+	for u in m.get("users", []):
+		if u != BOT_USER:
+			_user_match.erase(u)   # разрываем стабильную привязку — реконнект в этот матч больше не найдёт
 	_matches.erase(mid)
+
+
+# ============================================================ сервер: дисконнект/реконнект
+
+# Peer'ы слотов, реально подключённые сейчас (пропускает -1 и уже отпавшие). По ним рассылаем.
+func _connected_peers(m: Dictionary) -> Array:
+	var out: Array = []
+	for p in m.get("peers", []):
+		if p >= 1 and multiplayer.get_peers().has(p):
+			out.append(p)
+	return out
+
+
+# Вернуть только что вошедшего игрока в его брошенный матч, если такой есть. true — вернули
+# (тогда _respond_auth дошлёт resume). Чужой живой слот не перехватываем: если место ещё держит
+# подключённый peer (двойной вход одним аккаунтом), новый вход в матч не лезет.
+func _reattach_to_match(sender: int, user_id: int) -> bool:
+	var mid: int = _user_match.get(user_id, -1)
+	if mid < 0 or not _matches.has(mid):
+		_user_match.erase(user_id)   # висячая ссылка на закрытый матч — подчищаем
+		return false
+	var m: Dictionary = _matches[mid]
+	var slot: int = (m.users as Array).find(user_id)
+	if slot < 0:
+		return false
+	var held: int = m.peers[slot]
+	if held >= 1 and multiplayer.get_peers().has(held):
+		return false   # слот ещё за живым сокетом — не перехватываем
+	m.peers[slot] = sender
+	_peer_match[sender] = mid
+	_peer_index[sender] = slot
+	_peer_loadout[sender] = m.lo_a if slot == 0 else m.lo_b
+	print("[server] матч %d: user %d вернулся в слот %d (peer %d)" % [mid, user_id, slot, sender])
+	for p in _connected_peers(m):
+		if p != sender:
+			rpc_id(p, "notify_opponent_reconnected")
+	return true
+
+
+# Всё, из чего клиент заново собирает копию матча и догоняет текущий раунд переигровкой history.
+func _send_resume(sender: int, mid: int) -> void:
+	var m: Dictionary = _matches[mid]
+	var s: MatchSession = m.session
+	var slot: int = _peer_index[sender]
+	rpc_id(sender, "resume_match_rpc", slot, m.afo, m.lo_a, m.lo_b, m.map_index, m.ai_level,
+		m.mod_seed, m.history, s.has_orders(slot), s.has_orders(1 - slot))
+
+
+# Через RECONNECT_GRACE_SEC проверяем, вернулся ли игрок; нет — бросаем матч. Таймер не отменяем
+# при возврате: проверка идемпотентна (нет матча / все слоты на связи → ничего не делает).
+func _schedule_abandon(mid: int) -> void:
+	var t := get_tree().create_timer(RECONNECT_GRACE_SEC)
+	t.timeout.connect(_abandon_if_still_gone.bind(mid))
+
+
+func _abandon_if_still_gone(mid: int) -> void:
+	var m: Dictionary = _matches.get(mid, {})
+	if m.is_empty():
+		return   # матч уже закрылся (доигран, покинут или другой таймер сработал)
+	var someone_gone := false
+	for slot in (m.users as Array).size():
+		if m.users[slot] != BOT_USER and m.peers[slot] == -1:
+			someone_gone = true
+	if not someone_gone:
+		return   # все живые слоты на связи — игрок вернулся
+	print("[server] матч %d: игрок не вернулся за %.0fс — бросаю матч" % [mid, RECONNECT_GRACE_SEC])
+	for p in _connected_peers(m):
+		rpc_id(p, "notify_opponent_gone")
+	_end_match(mid)
 
 
 # ============================================================ RPC: сервер → клиент
 
 @rpc("authority", "call_remote", "reliable")
 func auth_ok_rpc(login: String, token: String, rating: int, loadout: Array, difficulty_unlocked: int,
-		ai_best: int = 0, settings: Variant = {}) -> void:
-	auth_ok.emit(login, token, rating, loadout, difficulty_unlocked, ai_best, Settings.sanitize_net(settings))
+		ai_best: int = 0, settings: Variant = {}, in_match: bool = false) -> void:
+	auth_ok.emit(login, token, rating, loadout, difficulty_unlocked, ai_best, Settings.sanitize_net(settings), in_match)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -547,6 +683,26 @@ func opp_progress_rpc(filled: Array) -> void:
 @rpc("authority", "call_remote", "reliable")
 func notify_opponent_gone() -> void:
 	opponent_gone.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func notify_opponent_disconnected() -> void:
+	opponent_disconnected.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func notify_opponent_reconnected() -> void:
+	opponent_reconnected.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func resume_match_rpc(slot: int = 0, a_first_on_odd: bool = true, loadout_a: Variant = [],
+		loadout_b: Variant = [], map_index: int = 0, ai_level: int = 0, mod_seed: int = 0,
+		history: Variant = [], already_submitted: bool = false, opp_submitted: bool = false) -> void:
+	my_index = slot
+	match_resumed.emit(slot, a_first_on_odd, Loadout.sanitize_team_net(loadout_a),
+		Loadout.sanitize_team_net(loadout_b), map_index, ai_level, mod_seed,
+		history if typeof(history) == TYPE_ARRAY else [], already_submitted, opp_submitted)
 
 
 @rpc("authority", "call_remote", "reliable")

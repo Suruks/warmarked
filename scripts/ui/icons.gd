@@ -69,6 +69,10 @@ const SKILL_FILES := {
 	Consts.Skill.KNOCKDOWN: "knockdown.png",   # арт ещё не нарисован -> заглушка
 	Consts.Skill.GUST: "wind_blow.png",
 	Consts.Skill.HOOK: "hook.png",
+	Consts.Skill.STAY_AWAY: "stay_away.png",
+	Consts.Skill.CALTROPS: "caltrops.png",          # арт ещё не нарисован -> заглушка
+	Consts.Skill.FAST_RELOAD: "quick_reload.png",
+	Consts.Skill.POWER_SURGE: "crystal_charge.png",
 }
 
 

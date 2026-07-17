@@ -649,11 +649,19 @@ func _skill_usable(u: Unit, action: int) -> bool:
 		return false   # пассивку нельзя взвести — она работает сама
 	if ad.slot_gate.size() > 0 and not (_active in ad.slot_gate):
 		return false
-	return u.mana - _reserved_for(u.id, _active) >= ad.mana
+	# Хватит ли маны на весь план, если поставить action в текущий слот — по той же
+	# последовательной модели с приростом, что и сервер (OrderValidator.mana_sequence_ok).
+	# Медитация в раннем слоте разблокирует то, на что маны сейчас формально не хватает.
+	return OrderValidator.mana_sequence_ok(_mana_seq_for(u, _active, action), u.mana)
 
 
-# Уже занят ли этим действием другой слот того же героя
+# Уже занят ли этим действием другой слот того же героя. «Быстрая перезарядка» снимает запрет
+# для способностей (но не для базовой атаки) — как и на сервере (OrderValidator).
 func _action_used(hero_id: int, action: int, exclude_slot: int) -> bool:
+	if action != Consts.Action.ATTACK:
+		var u := state.get_unit(hero_id)
+		if u != null and u.repeats_abilities():
+			return false
 	for i in Consts.ORDER_SLOTS:
 		if i == exclude_slot:
 			continue
@@ -662,15 +670,26 @@ func _action_used(hero_id: int, action: int, exclude_slot: int) -> bool:
 	return false
 
 
-# Зарезервированная мана героя по слотам (кроме указанного)
-func _reserved_for(hero_id: int, exclude_slot: int) -> int:
-	var r := 0
+# Последовательность [cost, gain] маны героя u по слотам 0..N для проверки mana_sequence_ok.
+# В слот candidate_slot подставляем candidate_action (гипотеза «что если сюда»), в остальных —
+# уже запланированные действия ЭТОГО героя (чужие слоты на его ману не влияют). Ход/пусто/чужой
+# слот — null (мана не тратится и не копится).
+func _mana_seq_for(u: Unit, candidate_slot: int, candidate_action: int) -> Array:
+	var seq: Array = []
 	for i in Consts.ORDER_SLOTS:
-		if i == exclude_slot or slot_hero[i] != hero_id:
-			continue
-		var u := state.get_unit(hero_id)
-		r += HeroDefs.for_action(u.hero_type, slot_action[i], u.skills, u.mana_discount).mana
-	return r
+		var act: int
+		if i == candidate_slot:
+			act = candidate_action
+		elif slot_hero[i] == u.id:
+			act = slot_action[i]
+		else:
+			act = Consts.Action.EMPTY
+		if act == Consts.Action.EMPTY or act == Consts.Action.MOVE:
+			seq.append(null)
+		else:
+			var ad := HeroDefs.for_action(u.hero_type, act, u.skills, u.mana_discount)
+			seq.append([ad.mana, ad.mana_gain])
+	return seq
 
 
 func _needs_target(unit: Unit, action: int) -> bool:
@@ -797,7 +816,7 @@ func _origin_for(hero_id: int, upto_slot: int) -> Vector2i:
 # ------------------------------------------------------------- готово
 
 func _on_done() -> void:
-	var reserved := {}
+	var seq_by_hero := {}   # hero_id -> [ [cost,gain]|null ]*ORDER_SLOTS — для последовательной проверки маны
 	var seen := {}   # "hero:action" — контроль «один приказ не дважды» (включая Ход)
 	for i in Consts.ORDER_SLOTS:
 		var hid: int = slot_hero[i]
@@ -805,22 +824,36 @@ func _on_done() -> void:
 			continue
 		var u := state.get_unit(hid)
 		var ad := HeroDefs.for_action(u.hero_type, slot_action[i], u.skills, u.mana_discount)
-		var key := "%d:%d" % [hid, slot_action[i]]   # Ход тоже в контроле дублей
-		if seen.has(key):
+		# «Быстрая перезарядка» разрешает повторять способности (не ход и не базовую атаку) — как
+		# и на сервере (OrderValidator). Дедуп включён по умолчанию, снимается только для способности.
+		var act: int = slot_action[i]
+		var dedup := true
+		if act != Consts.Action.MOVE and act != Consts.Action.ATTACK and u.repeats_abilities():
+			dedup = false
+		var key := "%d:%d" % [hid, act]   # Ход тоже в контроле дублей
+		if dedup and seen.has(key):
 			_err_lbl.text = "%s: «%s» нельзя занять дважды за раунд" % [u.full_name(), ad.name]
 			return
-		seen[key] = true
+		if dedup:
+			seen[key] = true
 		if ad.slot_gate.size() > 0 and not (i in ad.slot_gate):
 			_err_lbl.text = "%s: %s только в слотах %s" % [u.full_name(), ad.name, str(_gate_human(ad.slot_gate))]
 			return
 		if ad.target != HeroDefs.Target.NONE and slot_target[i].x < 0:
 			_err_lbl.text = "Слот %d: не выбрана цель" % (i + 1)
 			return
-		reserved[hid] = reserved.get(hid, 0) + ad.mana
-	for hid in reserved:
+		if slot_action[i] != Consts.Action.MOVE:
+			if not seq_by_hero.has(hid):
+				seq_by_hero[hid] = []
+				for _s in Consts.ORDER_SLOTS:
+					seq_by_hero[hid].append(null)
+			seq_by_hero[hid][i] = [ad.mana, ad.mana_gain]
+	# Мана — той же последовательной моделью, что валидатор и разблокировка (Медитация в раннем
+	# слоте оплачивает поздний). Провал = где-то по ходу раунда банк ушёл в минус.
+	for hid in seq_by_hero:
 		var u := state.get_unit(hid)
-		if reserved[hid] > u.mana:
-			_err_lbl.text = "%s: не хватает маны (%d > %d)" % [u.full_name(), reserved[hid], u.mana]
+		if not OrderValidator.mana_sequence_ok(seq_by_hero[hid], u.mana):
+			_err_lbl.text = "%s: не хватает маны на все действия раунда" % u.full_name()
 			return
 	var orders: Array = []
 	for i in Consts.ORDER_SLOTS:

@@ -88,6 +88,12 @@ func has_skill(id: int) -> bool:
 	return id in skills
 
 
+# «Быстрая перезарядка»: снимает запрет «одну способность не дважды за раунд» (только для
+# способностей — ход и базовая атака остаются одноразовыми). Проверяют и валидатор, и планировщик.
+func repeats_abilities() -> bool:
+	return has_skill(Consts.Skill.FAST_RELOAD)
+
+
 # Эффективная дальность хода: «Лёгкость» повышает, «Замедление» понижает.
 func move_range() -> int:
 	var r: int = Consts.LIGHTNESS_MOVE_RANGE if has_skill(Consts.Skill.LIGHTNESS) else Consts.MOVE_RANGE

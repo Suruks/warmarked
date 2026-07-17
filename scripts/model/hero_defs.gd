@@ -21,6 +21,12 @@ class AbilityDef:
 	var slot_gate: Array = []  # если непусто — разрешённые индексы слотов (0..3)
 	var desc: String
 	var passive: bool = false  # пассивка: занимает слот, но не активируется и не стоит маны
+	# Гарантированный, безусловный прирост маны от каста (Медитация). Учитывается в порядке слотов
+	# и валидатором, и планировщиком: мана, полученная в раннем слоте, доступна в позднем — как её
+	# тратит резолвер. Ставится ТОЛЬКО для скиллов, чей прирост не зависит от цели/попадания/реакции
+	# (иначе клиент разблокировал бы скилл, а на разрешении маны бы не оказалось): Кража маны
+	# (нужен сосед-враг с маной), Рефлексы (реактивны), Хладнокровие (за килл) сюда НЕ входят — 0.
+	var mana_gain: int = 0
 
 	func _init(p_name: String, p_mana: int, p_target: int, p_desc: String, p_gate: Array = [], p_passive: bool = false) -> void:
 		name = p_name
@@ -55,6 +61,7 @@ static func pool(hero_type: int) -> Array:
 					Consts.Skill.PRECISE, Consts.Skill.HUNT_MARK, Consts.Skill.RETREAT,
 					Consts.Skill.NET, Consts.Skill.DEATHCROSS, Consts.Skill.MINEFIELD,
 					Consts.Skill.BLEED, Consts.Skill.KNOCKDOWN,
+					Consts.Skill.STAY_AWAY, Consts.Skill.CALTROPS, Consts.Skill.FAST_RELOAD,
 					Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD]
 		Consts.HeroType.FAIRY:
 			return [Consts.Skill.CANCEL, Consts.Skill.HEAL, Consts.Skill.FLASH,
@@ -66,7 +73,8 @@ static func pool(hero_type: int) -> Array:
 			return [Consts.Skill.JUMP, Consts.Skill.AMBUSH, Consts.Skill.ONSLAUGHT,
 					Consts.Skill.DASH, Consts.Skill.SPIKES, Consts.Skill.REFLEXES,
 					Consts.Skill.HARDENING, Consts.Skill.SHARDS, Consts.Skill.OVERLOAD,
-					Consts.Skill.SWAP, Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA]
+					Consts.Skill.SWAP, Consts.Skill.POWER_SURGE,
+					Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA]
 	return []
 
 
@@ -88,7 +96,8 @@ static func is_neutral(skill: int) -> bool:
 # Пассивка ли скилл (занимает слот, но не активируется).
 static func is_passive(skill: int) -> bool:
 	return skill in [Consts.Skill.SNIPER, Consts.Skill.COLD_BLOOD, Consts.Skill.BLESSING,
-			Consts.Skill.LIGHTNESS, Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA]
+			Consts.Skill.LIGHTNESS, Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA,
+			Consts.Skill.STAY_AWAY, Consts.Skill.FAST_RELOAD]
 
 
 # Класс (hero_type), которому принадлежит скилл; -1 если ничей.
@@ -213,11 +222,29 @@ static func _skill_def_raw(skill: int) -> AbilityDef:
 			return AbilityDef.new("Хил себе", Consts.SELF_HEAL_MANA, Target.NONE,
 				"восстанавливает себе %d HP" % Consts.SELF_HEAL_AMOUNT)
 		Consts.Skill.MEDITATION:
-			return AbilityDef.new("Медитация", Consts.MEDITATION_MANA, Target.NONE,
+			var med := AbilityDef.new("Медитация", Consts.MEDITATION_MANA, Target.NONE,
 				"+%d маны" % Consts.MEDITATION_GAIN)
+			med.mana_gain = Consts.MEDITATION_GAIN
+			return med
 		Consts.Skill.HOOK:
 			return AbilityDef.new("Крюк", Consts.HOOK_MANA, Target.CELL,
 				"прямая до %d: притягивает юнита (врага или союзника) на %d клетку к себе" % [Consts.HOOK_RANGE, Consts.HOOK_PULL])
+		Consts.Skill.STAY_AWAY:
+			return AbilityDef.new("Держись подальше", 0, Target.NONE,
+				"пассив: враг, вошедший в соседнюю клетку, получает %d урона и отбрасывается" % Consts.STAY_AWAY_DMG,
+				[], true)
+		Consts.Skill.CALTROPS:
+			return AbilityDef.new("Шипы", Consts.CALTROPS_MANA, Target.CELL,
+				"поле шипов в радиусе %d: лежит %d раунда, в конце каждого — %d урона врагу на клетке"
+					% [Consts.CALTROPS_RANGE, Consts.CALTROPS_ROUNDS, Consts.CALTROPS_DMG])
+		Consts.Skill.FAST_RELOAD:
+			return AbilityDef.new("Быстрая перезарядка", 0, Target.NONE,
+				"пассив: можно применять одну способность несколько раз за раунд", [], true)
+		Consts.Skill.POWER_SURGE:
+			var surge := AbilityDef.new("Переполняющая мощь", Consts.POWER_SURGE_MANA, Target.NONE,
+				"наносит себе %d урона и получает %d маны" % [Consts.POWER_SURGE_SELF_DMG, Consts.POWER_SURGE_MANA_GAIN])
+			surge.mana_gain = Consts.POWER_SURGE_MANA_GAIN
+			return surge
 		Consts.Skill.DISORIENT:
 			return AbilityDef.new("Дезориентация", Consts.DISORIENT_MANA, Target.CELL,
 				"враг в радиусе %d: его следующий направленный скилл в этом раунде срабатывает в обратную сторону" % Consts.DISORIENT_RANGE)

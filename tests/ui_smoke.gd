@@ -92,6 +92,48 @@ func _initialize() -> void:
 	_check(not pp2._skill_usable(hunter2, Consts.Action.ABILITY1), "капкан недоступен вторично (уже в слоте 0)")
 	_check(pp2._skill_usable(hunter2, Consts.Action.ABILITY3), "другой скилл (дробь) доступен")
 
+	# --- медитация в раннем слоте разблокирует дорогой скилл в позднем (в РЕАЛЬНОЙ панели) ---
+	var st_med := MatchState.new()
+	st_med.setup()
+	st_med.begin_round()
+	var mh := st_med.get_unit(0)
+	mh.skills = [Consts.Skill.MEDITATION, Consts.Skill.DEATHCROSS, Consts.Skill.PRECISE]  # AB1=медит, AB2=крест(4)
+	mh.mana = Consts.DEATHCROSS_MANA - 1   # 3 — на крест «в лоб» не хватает
+	var pp_med := PlanningPanel.new()
+	get_root().add_child(pp_med)
+	pp_med.begin(st_med, Consts.Player.A, board_view)
+	# планируем крест в слоте 2 — пока без медитации, кнопка ЗАБЛОКИРОВАНА
+	pp_med._active = 2
+	_check(not pp_med._skill_usable(mh, Consts.Action.ABILITY2), "крест заблокирован: маны 3 < 4")
+	# ставим медитацию в слот 0 — и тот же крест в слоте 2 РАЗБЛОКИРУЕТСЯ
+	pp_med.slot_hero[0] = 0
+	pp_med.slot_action[0] = Consts.Action.ABILITY1
+	_check(pp_med._skill_usable(mh, Consts.Action.ABILITY2), "крест РАЗБЛОКИРОВАН медитацией в слоте 0")
+	# а медитация в ПОЗДНЕМ слоте (3) крест в слоте 2 не разблокирует
+	pp_med.slot_hero[0] = -1
+	pp_med.slot_action[0] = Consts.Action.EMPTY
+	pp_med.slot_hero[3] = 0
+	pp_med.slot_action[3] = Consts.Action.ABILITY1
+	_check(not pp_med._skill_usable(mh, Consts.Action.ABILITY2), "крест НЕ разблокирован поздней медитацией (слот 3 позже слота 2)")
+
+	# --- Быстрая перезарядка: один скилл доступен в двух слотах (в РЕАЛЬНОЙ панели) ---
+	var st_fr := MatchState.new()
+	st_fr.setup()
+	st_fr.begin_round()
+	var fr := st_fr.get_unit(0)
+	fr.skills = [Consts.Skill.SHOTGUN, Consts.Skill.PRECISE, Consts.Skill.FAST_RELOAD]  # AB1 = Дробь
+	fr.mana = 10
+	var pp_fr := PlanningPanel.new()
+	get_root().add_child(pp_fr)
+	pp_fr.begin(st_fr, Consts.Player.A, board_view)
+	pp_fr.slot_hero[0] = 0
+	pp_fr.slot_action[0] = Consts.Action.ABILITY1   # дробь занята в слоте 0
+	pp_fr._active = 2
+	_check(pp_fr._skill_usable(fr, Consts.Action.ABILITY1), "быстрая перезарядка: дробь доступна вторично в панели")
+	# без пассивки тот же скилл вторично НЕ доступен
+	fr.skills = [Consts.Skill.SHOTGUN, Consts.Skill.PRECISE, Consts.Skill.SNIPER]
+	_check(not pp_fr._skill_usable(fr, Consts.Action.ABILITY1), "без перезарядки дробь вторично недоступна")
+
 	# --- прыжок: планируемая позиция = клетка ЗА перепрыгнутым, а не сама цель ---
 	var st3 := MatchState.new()
 	st3.setup()

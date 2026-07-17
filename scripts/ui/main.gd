@@ -60,6 +60,7 @@ var _current_login := ""
 const INTENT_ONLINE := "online"
 const INTENT_AI := "ai"
 var _pending_intent := INTENT_ONLINE
+var _reconnecting := false   # пытаемся вернуться в брошенный обрывом матч (см. _show_dropped_match)
 
 
 func _ready() -> void:
@@ -317,9 +318,14 @@ func _connect_net() -> void:
 	Net.ai_matched.connect(_on_ai_matched)
 	Net.ai_match_denied.connect(_on_ai_match_denied)
 	Net.ai_progress.connect(_on_ai_progress)
+	Net.match_resumed.connect(_on_match_resumed)
 	Net.round_revealed.connect(_on_round_revealed)
 	Net.opponent_progress.connect(_on_opponent_progress)
-	Net.opponent_gone.connect(func(): _status("Соперник вышел. Матч окончен."))
+	Net.opponent_gone.connect(_on_opponent_gone)
+	Net.opponent_disconnected.connect(func():
+		if online: _warn("Соперник отключился. Ждём его возвращения — матч продолжится."))
+	Net.opponent_reconnected.connect(func():
+		if online: _warn("Соперник вернулся в матч."))
 	Net.version_mismatch.connect(_on_version_mismatch)
 
 
@@ -498,10 +504,35 @@ func _on_connect_trouble(text: String) -> void:
 	_authed_connection = false
 	if not _menu_shown_once:
 		_status_retry(text)   # ещё нет меню — только это и есть текущий экран
+	elif online and state != null:
+		# Обрыв ПОСРЕДИ матча: сервер держит матч RECONNECT_GRACE_SEC и вернёт нас по токену.
+		# Не рвём в меню и не гоним в очередь — предлагаем вернуться в тот же бой.
+		_show_dropped_match("Связь с матчем потеряна.\nСервер ещё держит ваш матч — можно вернуться.")
 	elif online:
-		_status(text, true)   # мешает онлайн-подключению/поиску/матчу — показываем
-	# иначе (меню, хотсит, ИИ, коллекция) сокет умер фоном — сокет умер, экран не трогаем;
+		_status(text, true)   # мешает поиску/подключению (матча ещё нет) — обычный экран с «Отмена»
+	# иначе (меню, хотсит, ИИ, коллекция) сокет умер фоном — экран не трогаем;
 	# следующий клик «Онлайн» увидит _authed_connection == false и переподключится сам
+
+
+# Экран обрыва во время матча: «Переподключиться» тихо входит по токену — сервер ответит
+# in_match=true и вернёт в бой (см. _on_auth_ok). «Выйти» бросает матч и уходит в меню.
+func _show_dropped_match(text: String) -> void:
+	var box := _status_box(text)
+	var b_reconnect := Button.new()
+	b_reconnect.text = "Переподключиться"
+	b_reconnect.custom_minimum_size = Vector2(220, 46)
+	b_reconnect.pressed.connect(func():
+		_reconnecting = true
+		_begin_auth(DEFAULT_HOST))
+	box.add_child(b_reconnect)
+	var b_leave := Button.new()
+	b_leave.text = "Выйти в меню"
+	b_leave.custom_minimum_size = Vector2(220, 40)
+	b_leave.pressed.connect(func():
+		_reconnecting = false
+		_exit_match_to_menu())
+	box.add_child(b_leave)
+	_set_panel(box)
 
 
 # ============================================================ меню
@@ -647,6 +678,66 @@ func _on_ai_match_denied(unlocked: int) -> void:
 	_ai_match = false
 	online = false
 	_status("Этот уровень сложности ещё не открыт (открыто %d)." % unlocked, true)
+
+
+# ============================================================ возврат в матч после реконнекта
+
+# Сервер вернул нас в брошенный на дисконнекте матч. Локальной копии больше нет — собираем её
+# заново из тех же параметров, что и в начале матча, и ДОГОНЯЕМ текущий раунд, молча переиграв
+# историю уже разрешённых раундов (переигровка детерминирована — та же механика, что держит
+# лок-степ). Дальше играем как обычно: планируем текущий раунд или ждём соперника.
+func _on_match_resumed(slot: int, a_first_on_odd: bool, loadout_a: Array, loadout_b: Array,
+		map_index: int, ai_level: int, mod_seed: int, history: Array,
+		already_submitted: bool, opp_submitted: bool) -> void:
+	my_index = slot
+	online = true
+	_ai_match = ai_level > 0
+	state = MatchState.new()
+	state.setup(loadout_a, loadout_b, map_index)
+	if ai_level > 0:
+		Difficulty.apply(state, Consts.Player.B, ai_level, mod_seed)   # тот же бот, что у сервера
+	state.a_first_on_odd = a_first_on_odd
+	round_start_events = state.begin_round()   # раунд 1: доход/хаускипинг
+	for rd in history:
+		_replay_round_silent(rd)   # каждый раунд истории продвигает state и обновляет round_start_events
+	board_view.setup(state.board)
+	_set_perspective(my_index)
+	board_view.render(state.snapshot())
+	_update_score_bars()
+	# Мы уже сходили в этом раунде до обрыва (сервер сохранил приказы) — значит ждём соперника,
+	# заново планировать нельзя (иначе сервер отверг бы дубль). Иначе — планируем как обычно.
+	if already_submitted:
+		_status("Приказы отправлены. Ожидание соперника…")
+	else:
+		_online_plan()
+		if opp_submitted and is_instance_valid(_planning_pp):
+			var all_filled: Array = []
+			for i in Consts.ORDER_SLOTS:
+				all_filled.append(true)
+			_planning_pp.set_opponent_progress(all_filled)
+
+
+# Переиграть один разрешённый раунд из истории без анимации — только чтобы догнать состояние.
+# Повторяет то, что делает связка _on_round_revealed + _on_online_resolution_done, но молча.
+func _replay_round_silent(rd: Variant) -> void:
+	if typeof(rd) != TYPE_ARRAY or (rd as Array).size() != 2:
+		return
+	var oa := NetProtocol.orders_from_data(rd[0])
+	var ob := NetProtocol.orders_from_data(rd[1])
+	var first := state.first_player_this_round()
+	resolver.resolve(state, oa, ob, first)
+	var score_events: Array = []
+	state.score_round(score_events)
+	# В history только незавершённые раунды (победный сервер не пишет — матч бы кончился), поэтому
+	# begin_round здесь всегда валиден и даёт события старта СЛЕДУЮЩЕГО раунда.
+	round_start_events = state.begin_round()
+
+
+func _on_opponent_gone() -> void:
+	# Матч действительно окончен (соперник вышел или не вернулся за grace) — даём путь в меню,
+	# иначе игрок застрял бы на статусе без кнопок.
+	if online:
+		_status("Соперник вышел. Матч окончен.", true)
 
 
 # Итог боя с ИИ пришёл от сервера (до раскрытия последнего раунда) — экран победы покажет его,
@@ -830,7 +921,7 @@ func _show_login_panel(error_text: String = "", show_cancel: bool = false) -> vo
 
 
 func _on_auth_ok(login: String, token: String, _rating: int, loadout: Array, difficulty_unlocked: int,
-		ai_best: int, settings: Dictionary) -> void:
+		ai_best: int, settings: Dictionary, in_match: bool) -> void:
 	Account.save_session(login, token)
 	Loadout.set_team(Loadout.sanitize_team_net(loadout))   # сервер уже прислал сохранённый (или дефолтный) отряд
 	Difficulty.set_unlocked(difficulty_unlocked)
@@ -838,6 +929,24 @@ func _on_auth_ok(login: String, token: String, _rating: int, loadout: Array, dif
 	Settings.apply_net(settings)   # в т.ч. громкость: она едет за аккаунтом, а не за устройством
 	_current_login = login
 	_authed_connection = true
+	# Сервер вернул нас в брошенный матч: не уходим в меню/очередь — resume_match_rpc уже в пути
+	# (см. Net._respond_auth), он и восстановит бой. До него держим нейтральный статус.
+	if in_match:
+		_reconnecting = false
+		_menu_shown_once = true
+		online = true
+		_status("Возвращаемся в матч…")
+		return
+	# Пытались вернуться в матч, но его уже нет (истёк grace или сервер перезапускался) — честно
+	# говорим и уходим в меню, а не роняем в очередь по инерции _pending_intent.
+	if _reconnecting:
+		_reconnecting = false
+		online = false
+		state = null
+		_menu_shown_once = true
+		_show_menu()
+		_warn("Матч уже завершился — вернуться не удалось.")
+		return
 	if _auto:
 		if _auto_ai:
 			_start_ai_match()
