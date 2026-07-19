@@ -98,6 +98,9 @@ static func _slot_legal(state: MatchState, o: Order, player: int, slot: int, ban
 	elif skill == Consts.Skill.STEP:
 		if not _path_legal(o.path, Consts.STEP_RANGE):
 			return false
+	elif skill == Consts.Skill.FLIGHT:
+		if not _path_legal(o.path, Consts.FLIGHT_RANGE):
+			return false
 	elif skill == Consts.Skill.MINEFIELD:
 		# Минное поле несёт список офсетов мин в o.path (как путь — но это НЕ шаги, а цели).
 		if not _minefield_legal(o.path):
@@ -166,6 +169,8 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 				return _cheb(off) == 1
 			Consts.HeroType.CRYSTAL:   # Удар: орто-сосед
 				return _man(off) == 1
+			Consts.HeroType.DRACONID:  # Пламя: орто-сосед задаёт направление
+				return _man(off) == 1
 		return false
 	match HeroDefs.skill_of_action(u.hero_type, action, u.skills):
 		Consts.Skill.TRAP:        # радиус 2 (манхэттен)
@@ -224,6 +229,14 @@ static func _target_legal(u: Unit, action: int, off: Vector2i) -> bool:
 			return _ray(off) >= 1 and _ray(off) <= Consts.HOOK_RANGE
 		Consts.Skill.CALTROPS:    # клетка в радиусе CALTROPS_RANGE (манхэттен)
 			return _man(off) >= 1 and _man(off) <= Consts.CALTROPS_RANGE
+		Consts.Skill.FIRE_BREATH: # прямая, 1..FIRE_BREATH_RANGE
+			return _ray(off) >= 1 and _ray(off) <= Consts.FIRE_BREATH_RANGE
+		Consts.Skill.CLAWS:       # орто-сосед задаёт направление дуги
+			return _man(off) == 1
+		Consts.Skill.DIVE:        # прямая, 1..DIVE_RANGE
+			return _ray(off) >= 1 and _ray(off) <= Consts.DIVE_RANGE
+		Consts.Skill.DEVOUR:      # соседний (8 сторон)
+			return _cheb(off) == 1
 	return false
 
 

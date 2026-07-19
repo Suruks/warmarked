@@ -115,11 +115,17 @@ func _walk_path(state: MatchState, unit: Unit, path: Array, events: Array) -> vo
 # же «Держись подальше» и вызвал, это false: иначе враг мог бы бесконечно скакать между двумя
 # Охотниками (A толкнул к B, B толкнул к A, ...). Капканы/засады на таком входе срабатывают как обычно.
 func _enter(state: MatchState, unit: Unit, cell: Vector2i, events: Array, src_player: int, ev_type: int, text: String,
-		allow_stay_away: bool = true) -> void:
+		allow_stay_away: bool = true, allow_predator: bool = true) -> void:
+	var from := unit.cell
 	unit.cell = cell
 	unit.moved_this_round = true   # «Снайпер»: любое перемещение считается движением
 	_push(events, state, ev_type, text, {"actor": unit.id, "to_cell": cell})
 	_check_triggers(state, unit, cell, events, src_player, allow_stay_away)
+	# «Инстинкт хищника»: САМ ушедший сосед (ev_type MOVE — ход/рывок/полёт, но не отброс) провоцирует
+	# рывок вражеского Драконида со взведённой стойкой. Сам рывок помечен allow_predator=false —
+	# он не провоцирует чужие стойки, поэтому цепочка преследований не зацикливается.
+	if allow_predator and ev_type == Consts.EventType.MOVE and unit.alive and from != cell:
+		_check_predator(state, unit, from, events)
 	_bleed_tick(state, unit, events)
 
 
@@ -254,6 +260,9 @@ func _dmg(unit: Unit, skill: int, base: int) -> int:
 func _deal_damage(state: MatchState, target: Unit, amount: int, src_player: int, events: Array, label: String,
 		src_unit: Unit = null, retaliate: bool = true) -> void:
 	var dmg := amount
+	# «Рёв» Драконида: источник урона с активным баффом бьёт на dmg_buff_round сильнее
+	if src_unit != null and src_unit.dmg_buff_round > 0:
+		dmg += src_unit.dmg_buff_round
 	# «Охота началась»: урон Охотника по помеченной цели увеличен на фикс. значение
 	if target.hunt_turns > 0 and src_unit != null and src_unit.hero_type == Consts.HeroType.HUNTER:
 		dmg += Consts.HUNT_BONUS_DMG
@@ -361,6 +370,10 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 		return
 	var et := _eff_target(state, unit, order, events)
 	_check_reflexes(state, unit, et, events)   # цель могла увернуться — тогда бьём в пустоту
+	# «Пламя» Драконида: луч длиной 2 — бьёт соседнюю клетку и следующую за ней на той же прямой
+	if unit.hero_type == Consts.HeroType.DRACONID:
+		_do_flame(state, unit, et, events)
+		return
 	var dmg := 0
 	var victim: Unit
 	match unit.hero_type:
@@ -390,6 +403,26 @@ func _do_basic_attack(state: MatchState, unit: Unit, order: Order, events: Array
 		"%s атакует %s" % [unit.full_name(), victim.full_name()],
 		{"actor": unit.id, "target_cell": et})
 	_deal_damage(state, victim, dmg, unit.owner, events, "атака", unit)
+
+
+# «Пламя» Драконида: бьёт клетку et (орто-сосед) и следующую за ней на той же прямой.
+# По каждой — свой юнит (враг ИЛИ союзник). Пусто на обеих — физзл.
+func _do_flame(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var dir := _dir_sign(et - unit.cell)
+	_push(events, state, Consts.EventType.ATTACK,
+		"%s выдыхает пламя" % unit.full_name(), {"actor": unit.id, "target_cell": et})
+	var hit := false
+	for c in [et, et + dir]:
+		if not state.board.is_passable(c):
+			break   # стена обрывает пламя (вторая клетка за стеной не достаётся)
+		var v := state.unit_at(c)
+		if v == null:
+			continue
+		hit = true
+		_deal_damage(state, v, Consts.DRACONID_ATK_DMG, unit.owner, events, "пламя", unit)
+	if not hit:
+		_push(events, state, Consts.EventType.FIZZLE,
+			"%s: пламя ушло в пустоту" % unit.full_name())
 
 
 # ---------------------------------------------------------------- способности
@@ -494,6 +527,14 @@ func _do_ability(state: MatchState, unit: Unit, order: Order, slot: int, events:
 		Consts.Skill.CALTROPS: _sk_caltrops(state, unit, et, events)
 		Consts.Skill.POWER_SURGE: _sk_power_surge(state, unit, events)
 		Consts.Skill.STAY_AWAY: _sk_stay_away(state, unit, events)
+		Consts.Skill.FIRE_BREATH: _sk_fire_breath(state, unit, et, events)
+		Consts.Skill.WING_SWEEP: _sk_wing_sweep(state, unit, events)
+		Consts.Skill.CLAWS: _sk_claws(state, unit, et, events)
+		Consts.Skill.ROAR: _sk_roar(state, unit, events)
+		Consts.Skill.FLIGHT: _sk_flight(state, unit, order, events)
+		Consts.Skill.PREDATOR_INSTINCT: _sk_predator(state, unit, events)
+		Consts.Skill.DIVE: _sk_dive(state, unit, et, events)
+		Consts.Skill.DEVOUR: _sk_devour(state, unit, et, events)
 
 
 # Капкан — не ставится в занятую юнитом или могилой клетку
@@ -1073,6 +1114,188 @@ func _sk_swap(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> voi
 	_bleed_tick(state, other, events)
 
 
+# --- Драконид ---
+
+# Огненное дыхание — FIRE_BREATH_DMG ВСЕМ юнитам (враг и союзник) на прямой орто-линии до
+# FIRE_BREATH_RANGE клеток. Луч проходит сквозь юнитов (жжёт всех), обрывается препятствием/краем.
+func _sk_fire_breath(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var dir := _dir_sign(et - unit.cell)
+	if dir == Vector2i.ZERO or (dir.x != 0 and dir.y != 0):
+		_push(events, state, Consts.EventType.FIZZLE, "Огненное дыхание: только по прямой")
+		return
+	var hit := false
+	var c := unit.cell + dir
+	for _r in Consts.FIRE_BREATH_RANGE:
+		if not state.board.is_passable(c):
+			break
+		var v := state.unit_at(c)
+		if v != null:
+			hit = true
+			_deal_damage(state, v, _dmg(unit, Consts.Skill.FIRE_BREATH, Consts.FIRE_BREATH_DMG),
+				unit.owner, events, "огненное дыхание", unit)
+		c += dir
+	if not hit:
+		_push(events, state, Consts.EventType.FIZZLE, "Огненное дыхание: на линии никого")
+
+
+# Взмах крыльев — WING_SWEEP_DMG всем соседям (8 сторон, включая союзников) и отброс на
+# WING_SWEEP_PUSH клетку от Драконида. Отброс уводит цель на дистанцию 2 — вне радиуса, повторно не заденет.
+func _sk_wing_sweep(state: MatchState, unit: Unit, events: Array) -> void:
+	var hit := false
+	for d in Consts.DIRS8:
+		var v := state.unit_at(unit.cell + d)
+		if v == null:
+			continue
+		hit = true
+		_deal_damage(state, v, _dmg(unit, Consts.Skill.WING_SWEEP, Consts.WING_SWEEP_DMG),
+			unit.owner, events, "взмах крыльев", unit)
+		if v.alive:
+			_shove(state, v, _dir_sign(v.cell - unit.cell), Consts.WING_SWEEP_PUSH, unit.owner, events)
+	if not hit:
+		_push(events, state, Consts.EventType.FIZZLE, "Взмах крыльев: рядом пусто")
+
+
+# Когти — CLAWS_DMG по дуге из 3 клеток впереди (передняя et + две диагонально-передние). Бьёт всех на них.
+func _sk_claws(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _manhattan(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Когти: цель не соседняя")
+		return
+	var dir := _dir_sign(et - unit.cell)
+	var perp := Vector2i(dir.y, dir.x)   # перпендикуляр к направлению — «крылья» дуги
+	var hit := false
+	for c in [et, et + perp, et - perp]:
+		var v := state.unit_at(c)
+		if v == null:
+			continue
+		hit = true
+		_deal_damage(state, v, _dmg(unit, Consts.Skill.CLAWS, Consts.CLAWS_DMG),
+			unit.owner, events, "когти", unit)
+	if not hit:
+		_push(events, state, Consts.EventType.FIZZLE, "Когти: по дуге впереди пусто")
+
+
+# Рёв — союзники в радиусе ROAR_RADIUS (Chebyshev, включая самого Драконида) получают
+# +ROAR_BONUS к урону до конца этого раунда (стойка-бафф, см. _deal_damage).
+func _sk_roar(state: MatchState, unit: Unit, events: Array) -> void:
+	var n := 0
+	for u in state.units:
+		if not u.alive or u.owner != unit.owner:
+			continue
+		if _cheb(unit.cell, u.cell) > Consts.ROAR_RADIUS:
+			continue
+		u.dmg_buff_round = maxi(u.dmg_buff_round, Consts.ROAR_BONUS)
+		n += 1
+	_push(events, state, Consts.EventType.ABILITY,
+		"%s издаёт рёв: +%d к урону союзникам (%d) в этом раунде" % [unit.full_name(), Consts.ROAR_BONUS, n])
+
+
+# Полёт — ход по относительному пути до FLIGHT_RANGE клеток, СКВОЗЬ врагов и союзников.
+# Приземляется на последнюю свободную клетку по пути (стена/край обрывают полёт). Обездвиживание
+# отсекается в _do_ability (FLIGHT в _skill_moves_caster). Вход в клетку приземления — как ход
+# (капкан/засада/кровотечение на ней срабатывают); транзитные клетки перелетаются без входа.
+func _sk_flight(state: MatchState, unit: Unit, order: Order, events: Array) -> void:
+	var p: Array = order.path
+	if p.size() > Consts.FLIGHT_RANGE:
+		p = p.slice(0, Consts.FLIGHT_RANGE)
+	var cur := unit.cell
+	var dest := unit.cell
+	for step in p:
+		var next: Vector2i = cur + step
+		if not state.board.is_passable(next):
+			break   # стена обрывает полёт
+		cur = next
+		var occ := state.unit_at(next)
+		if occ == null or occ.id == unit.id:
+			dest = next   # свободно — возможное приземление (сквозь занятые летим дальше)
+	if dest == unit.cell:
+		_push(events, state, Consts.EventType.FIZZLE, "%s: полёт — некуда приземлиться" % unit.full_name())
+		return
+	_enter(state, unit, dest, events, unit.owner, Consts.EventType.MOVE,
+		"%s взлетает на (%d,%d)" % [unit.full_name(), dest.x, dest.y])
+
+
+# Инстинкт хищника — взводит стойку (реагирует на уход соседнего врага, см. _check_predator).
+func _sk_predator(state: MatchState, unit: Unit, events: Array) -> void:
+	unit.predator_armed = true
+	_push(events, state, Consts.EventType.AMBUSH_ARMED,
+		"%s встаёт в стойку «Инстинкт хищника»" % unit.full_name())
+
+
+# Реакция стойки: враг САМ ушёл с клетки `from`, соседней с Драконидом со взведённой стойкой.
+# Драконид (младший по id — детерминированно) делает шаг в освободившуюся клетку и кусает беглеца.
+# Одноразово за раунд. Если добыча метнулась далеко (телепорт/полёт) — рывок не достаёт, стойка цела.
+func _check_predator(state: MatchState, mover: Unit, from: Vector2i, events: Array) -> void:
+	var best: Unit = null
+	for d in state.units:
+		if not d.alive or d.owner == mover.owner or not d.predator_armed or d.immobilized:
+			continue
+		if _cheb(d.cell, from) != 1:
+			continue
+		if best == null or d.id < best.id:
+			best = d
+	if best == null:
+		return
+	# шаг только в освободившуюся клетку и только если после него добыча окажется рядом (мелей)
+	if not state.board.is_passable(from) or state.unit_at(from) != null or _cheb(from, mover.cell) != 1:
+		return
+	best.predator_armed = false   # одноразовый рывок за раунд
+	_push(events, state, Consts.EventType.ABILITY,
+		"Инстинкт хищника! %s бросается за %s" % [best.full_name(), mover.full_name()],
+		{"actor": best.id, "target_cell": from})
+	# рывок следом — не провоцирует чужие стойки (allow_predator=false)
+	_enter(state, best, from, events, best.owner, Consts.EventType.MOVE,
+		"%s делает рывок на (%d,%d)" % [best.full_name(), from.x, from.y], true, false)
+	if mover.alive and best.alive:
+		_deal_damage(state, mover, _dmg(best, Consts.Skill.PREDATOR_INSTINCT, Consts.PREDATOR_DMG),
+			best.owner, events, "инстинкт хищника", best)
+
+
+# Пикирование — рывок по прямой на 1..DIVE_RANGE клеток (упор в юнита/стену — приземление перед ним),
+# затем DIVE_DMG урона ВСЕМ (8 сторон) вокруг точки приземления.
+func _sk_dive(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	var dir := _dir_sign(et - unit.cell)
+	if dir == Vector2i.ZERO or (dir.x != 0 and dir.y != 0):
+		_push(events, state, Consts.EventType.FIZZLE, "Пикирование: только по прямой")
+		return
+	var steps := mini(_manhattan(unit.cell, et), Consts.DIVE_RANGE)
+	var land := unit.cell
+	var c := unit.cell
+	for _s in steps:
+		c += dir
+		if not state.board.is_passable(c) or state.unit_at(c) != null:
+			break
+		land = c
+	if land != unit.cell:
+		_enter(state, unit, land, events, unit.owner, Consts.EventType.MOVE,
+			"%s пикирует на (%d,%d)" % [unit.full_name(), land.x, land.y])
+	if not unit.alive:
+		return   # приземлился на капкан и погиб — взрыва нет
+	for d in Consts.DIRS8:
+		var v := state.unit_at(land + d)
+		if v != null:
+			_deal_damage(state, v, _dmg(unit, Consts.Skill.DIVE, Consts.DIVE_DMG),
+				unit.owner, events, "пикирование", unit)
+
+
+# Пожирание — мгновенно уничтожает соседнего врага с HP <= DEVOUR_THRESHOLD (казнь мимо щитов/митигаций).
+func _sk_devour(state: MatchState, unit: Unit, et: Vector2i, events: Array) -> void:
+	if _cheb(unit.cell, et) != 1:
+		_push(events, state, Consts.EventType.FIZZLE, "Пожирание: цель не соседняя")
+		return
+	var v := state.unit_at(et)
+	if v == null or v.owner == unit.owner:
+		_push(events, state, Consts.EventType.FIZZLE, "Пожирание: на (%d,%d) нет врага" % [et.x, et.y])
+		return
+	if v.hp > Consts.DEVOUR_THRESHOLD:
+		_push(events, state, Consts.EventType.FIZZLE,
+			"Пожирание: у %s слишком много HP (%d > %d)" % [v.full_name(), v.hp, Consts.DEVOUR_THRESHOLD])
+		return
+	_push(events, state, Consts.EventType.ABILITY,
+		"%s пожирает %s" % [unit.full_name(), v.full_name()], {"actor": unit.id, "target_cell": et})
+	v.hp = 0
+	_kill(state, v, unit.owner, events, unit)
+
+
 # Соседний враг целит в клетку юнита со взведёнными рефлексами: тот отступает на 1 и
 # получает ману, а эффект прилетает в опустевшую клетку (no-retarget — цель фиксирована).
 # Если отступать некуда, стойка не тратится и удар проходит: зажатого в угол не спасает.
@@ -1124,7 +1347,7 @@ func _raw_offset(unit: Unit, order: Order) -> Vector2i:
 func _target_geometry_ok(unit: Unit, order: Order, skill: int, def: Variant) -> bool:
 	if def.target == HeroDefs.Target.NONE:
 		return true
-	if skill in [Consts.Skill.RETREAT, Consts.Skill.STEP, Consts.Skill.MINEFIELD]:
+	if skill in [Consts.Skill.RETREAT, Consts.Skill.STEP, Consts.Skill.FLIGHT, Consts.Skill.MINEFIELD]:
 		return true
 	return OrderValidator._target_legal(unit, order.action, _raw_offset(unit, order))
 
@@ -1133,7 +1356,7 @@ func _target_geometry_ok(unit: Unit, order: Order, skill: int, def: Variant) -> 
 func _skill_moves_caster(skill: int) -> bool:
 	return skill in [Consts.Skill.JUMP, Consts.Skill.DASH, Consts.Skill.ONSLAUGHT,
 			Consts.Skill.SWAP, Consts.Skill.RETREAT, Consts.Skill.TELEPORT,
-			Consts.Skill.STEP, Consts.Skill.SWAP_ALLY]
+			Consts.Skill.STEP, Consts.Skill.SWAP_ALLY, Consts.Skill.FLIGHT, Consts.Skill.DIVE]
 
 
 # Минимальная дальность «пулевых» умений (бьют первого юнита на прямой линии к выбранной

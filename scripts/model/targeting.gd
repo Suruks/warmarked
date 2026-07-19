@@ -21,7 +21,9 @@ static func _at(occ: Dictionary, cell: Vector2i):
 
 # Достижимые ходом клетки (орто, <= MOVE_RANGE) и путь к каждой. cell -> Array[Vector2i] путь.
 # Союзник — проходим (можно пройти сквозь), но НЕ пункт назначения. Враг — глухая стена.
-static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: Dictionary = {}, p_range: int = Consts.MOVE_RANGE) -> Dictionary:
+# through_enemies (Полёт Драконида) — вражеский юнит становится проходимой ТРАНЗИТНОЙ клеткой:
+# сквозь него летят, но приземлиться на него нельзя (он не попадает в result, как и союзник).
+static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: Dictionary = {}, p_range: int = Consts.MOVE_RANGE, through_enemies: bool = false) -> Dictionary:
 	if occ.is_empty():
 		occ = build_occupancy(state)
 	var board := state.board
@@ -41,8 +43,8 @@ static func move_paths(state: MatchState, origin: Vector2i, self_id: int, occ: D
 				continue
 			var e = occ.get(n, null)
 			var blocker: bool = e != null and e.id != self_id
-			if blocker and e.owner != my_owner:
-				continue          # вражеский юнит не пропускает
+			if blocker and e.owner != my_owner and not through_enemies:
+				continue          # вражеский юнит не пропускает (при through_enemies — пропускает, но не даёт встать)
 			if came.has(n):
 				continue
 			var path: Array = came[cur].duplicate()
@@ -137,6 +139,11 @@ static func _basic_attack_cells(state: MatchState, unit: Unit, origin: Vector2i)
 				if board.is_passable(c):
 					out.append(c)
 		Consts.HeroType.CRYSTAL:
+			for d in Consts.DIRS4:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
+					out.append(c)
+		Consts.HeroType.DRACONID:  # «Пламя»: орто-сосед задаёт направление луча длиной 2
 			for d in Consts.DIRS4:
 				var c: Vector2i = origin + d
 				if board.is_passable(c):
@@ -306,5 +313,31 @@ static func _ability_cells(state: MatchState, unit: Unit, idx: int, origin: Vect
 			for d in Consts.DIRS8:
 				var c: Vector2i = origin + d
 				if board.is_passable(c) and _at(occ, c) != null:
+					out.append(c)
+		Consts.Skill.FIRE_BREATH:  # прямая орто-линия 1..FIRE_BREATH_RANGE, чистая по террейну
+			for d in Consts.DIRS4:
+				for r in range(1, Consts.FIRE_BREATH_RANGE + 1):
+					var c: Vector2i = origin + d * r
+					if board.is_passable(c) and board.is_clear_line(origin, c):
+						out.append(c)
+		Consts.Skill.CLAWS:  # орто-сосед задаёт направление дуги впереди
+			for d in Consts.DIRS4:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
+					out.append(c)
+		Consts.Skill.FLIGHT:  # ход по пути до FLIGHT_RANGE клеток, сквозь врагов
+			for c in move_paths(state, origin, unit.id, occ, Consts.FLIGHT_RANGE, true).keys():
+				out.append(c)
+		Consts.Skill.DIVE:  # свободные клетки по прямой 1..DIVE_RANGE (луч упирается в юнита/стену)
+			for d in Consts.DIRS4:
+				for r in range(1, Consts.DIVE_RANGE + 1):
+					var c: Vector2i = origin + d * r
+					if not board.is_passable(c) or _at(occ, c) != null:
+						break
+					out.append(c)
+		Consts.Skill.DEVOUR:  # соседний (8 сторон) враг (порог HP проверяется в резолве)
+			for d in Consts.DIRS8:
+				var c: Vector2i = origin + d
+				if board.is_passable(c):
 					out.append(c)
 	return out

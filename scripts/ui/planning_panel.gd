@@ -382,9 +382,10 @@ func _commit(cell: Vector2i) -> void:
 		if path.is_empty() and Settings.allow_impossible_targets and cell != origin:
 			path = _impossible_move_path(origin, cell, mr)
 	elif _is_path_skill(_pending_skill()):
-		# Отступление/Сходить — путь, как ход, но своей дальностью
+		# Отступление/Сходить/Полёт — путь, как ход, но своей дальностью (Полёт — сквозь врагов)
 		var pr := _path_skill_range(_pending_skill())
-		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), pr).get(cell, [])
+		var thru := _pending_skill() == Consts.Skill.FLIGHT
+		path = Targeting.move_paths(state, origin, _pending_hero, _planned_occupancy(), pr, thru).get(cell, [])
 		if path.is_empty() and Settings.allow_impossible_targets and cell != origin:
 			path = _impossible_move_path(origin, cell, pr)
 	_write_slot(_active, _pending_hero, _pending_action, cell, path)
@@ -735,13 +736,16 @@ func _direct_path(origin: Vector2i, cell: Vector2i) -> Array:
 	return out
 
 
-# Скиллы, несущие относительный путь (как ход): Отступление и Сходить
+# Скиллы, несущие относительный путь (как ход): Отступление, Сходить, Полёт
 func _is_path_skill(skill: int) -> bool:
-	return skill == Consts.Skill.RETREAT or skill == Consts.Skill.STEP
+	return skill == Consts.Skill.RETREAT or skill == Consts.Skill.STEP or skill == Consts.Skill.FLIGHT
 
 
 func _path_skill_range(skill: int) -> int:
-	return Consts.RETREAT_RANGE if skill == Consts.Skill.RETREAT else Consts.STEP_RANGE
+	match skill:
+		Consts.Skill.RETREAT: return Consts.RETREAT_RANGE
+		Consts.Skill.FLIGHT: return Consts.FLIGHT_RANGE
+	return Consts.STEP_RANGE
 
 
 # Скилл за текущим нацеливаемым действием (или за действием в слоте i)
@@ -804,11 +808,11 @@ func _origin_for(hero_id: int, upto_slot: int) -> Vector2i:
 			Consts.Skill.JUMP:        # приземление ЗА перепрыгнутым
 				var dl: Vector2i = slot_target[j] - pos
 				pos = slot_target[j] + Vector2i(signi(dl.x), signi(dl.y))
-			Consts.Skill.DASH:        # в целевую клетку
+			Consts.Skill.DASH, Consts.Skill.DIVE:   # в целевую клетку (приземление)
 				pos = slot_target[j]
 			Consts.Skill.ONSLAUGHT:   # занимает клетку отброшенного врага
 				pos = slot_target[j]
-			Consts.Skill.RETREAT, Consts.Skill.STEP:   # путь-скилл: уходит в конец пути
+			Consts.Skill.RETREAT, Consts.Skill.STEP, Consts.Skill.FLIGHT:   # путь-скилл: уходит в конец пути
 				pos = slot_target[j]
 	return pos
 

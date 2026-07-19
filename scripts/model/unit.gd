@@ -54,6 +54,14 @@ var no_attack_turns: int = 0
 # «Замедление» Феи: пока > 0, дальность хода юнита снижена. Держится через раунды (убывает).
 var slow_turns: int = 0
 
+# «Рёв» Драконида (стойка-бафф): пока > 0, весь урон, наносимый этим юнитом, увеличен на это
+# значение. Держит лишь свой раунд — сбрасывается в начале следующего (как Затвердение/Осколки).
+var dmg_buff_round: int = 0
+
+# «Инстинкт хищника» Драконида (стойка). Пока взведено, уход соседнего врага провоцирует рывок
+# следом с уроном (одноразово за раунд). Держит лишь свой раунд, сбрасывается в начале следующего.
+var predator_armed: bool = false
+
 # --- Пассивки ---
 var moved_this_round: bool = false   # менял ли клетку в этом раунде (для «Снайпер»)
 # менял ли клетку в прошлом раунде; старт — true (не «стоял на месте»), чтобы «Снайпер»
@@ -84,6 +92,7 @@ func _init(p_id: int, p_owner: int, p_hero_type: int, p_cell: Vector2i, p_skills
 		Consts.HeroType.HUNTER: max_hp = Consts.HUNTER_HP
 		Consts.HeroType.FAIRY: max_hp = Consts.FAIRY_HP
 		Consts.HeroType.CRYSTAL: max_hp = Consts.CRYSTAL_HP
+		Consts.HeroType.DRACONID: max_hp = Consts.DRACONID_HP
 	hp = max_hp
 	mana = Consts.START_MANA
 
@@ -140,6 +149,8 @@ func clone() -> Unit:
 	u.disoriented = disoriented
 	u.no_attack_turns = no_attack_turns
 	u.slow_turns = slow_turns
+	u.dmg_buff_round = dmg_buff_round
+	u.predator_armed = predator_armed
 	u.moved_this_round = moved_this_round
 	u.moved_last_round = moved_last_round
 	u.shell_used = shell_used
@@ -167,6 +178,7 @@ func snapshot() -> Dictionary:
 		"hardened": hardened,
 		"shards": shards_armed,
 		"stay_away": stay_away_armed,
+		"predator": predator_armed,
 		"hunted": hunt_turns,
 		"bleed": bleed_turns,
 		"disoriented": disoriented,

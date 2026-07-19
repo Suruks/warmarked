@@ -144,6 +144,13 @@ static func _shaping(work: MatchState, u: Unit, cand: Order) -> float:
 			if ally == null or ally.owner != u.owner:
 				return -30.0
 			return 18.0 if (_threatened(work, ally) and ally.hp <= ally.max_hp * 0.6) else -12.0
+		Consts.Skill.PREDATOR_INSTINCT:
+			# стойка окупается, только если рядом есть враг, который может уйти
+			for e in work.units:
+				if e.alive and e.owner != u.owner \
+						and maxi(absi(e.cell.x - u.cell.x), absi(e.cell.y - u.cell.y)) == 1:
+					return 8.0
+			return -10.0
 	return 0.0
 
 
@@ -178,9 +185,13 @@ static func _unit_candidates(work: MatchState, u: Unit, slot: int) -> Array:
 		if def.slot_gate.size() > 0 and not (slot in def.slot_gate):
 			continue
 		var skill: int = u.skills[i]
-		if skill == Consts.Skill.RETREAT or skill == Consts.Skill.STEP:
-			var rng: int = Consts.RETREAT_RANGE if skill == Consts.Skill.RETREAT else Consts.STEP_RANGE
-			var pp := Targeting.move_paths(work, u.cell, u.id, {}, rng)
+		if skill == Consts.Skill.RETREAT or skill == Consts.Skill.STEP or skill == Consts.Skill.FLIGHT:
+			var rng: int = Consts.RETREAT_RANGE
+			if skill == Consts.Skill.STEP:
+				rng = Consts.STEP_RANGE
+			elif skill == Consts.Skill.FLIGHT:
+				rng = Consts.FLIGHT_RANGE
+			var pp := Targeting.move_paths(work, u.cell, u.id, {}, rng, skill == Consts.Skill.FLIGHT)
 			for dest in pp:
 				var steps := _to_steps(u.cell, pp[dest])
 				if not steps.is_empty():

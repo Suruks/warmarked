@@ -195,7 +195,7 @@ func _build_source() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
 
-	for h in Loadout.HEROES:
+	for h in Loadout.CLASSES:
 		_add_source_section(col, Consts.hero_name(h), Icons.hero(h), HeroDefs.pool(h))
 	_add_source_section(col, "Нейтральные", null, HeroDefs.neutrals())
 

@@ -49,6 +49,9 @@ static func basic_attack(hero_type: int) -> AbilityDef:
 		Consts.HeroType.CRYSTAL:
 			return AbilityDef.new("Удар", 0, Target.CELL,
 				"%d урона соседней клетке" % Consts.CRYSTAL_ATK_DMG)
+		Consts.HeroType.DRACONID:
+			return AbilityDef.new("Пламя", 0, Target.CELL,
+				"%d урона соседней клетке и следующей за ней" % Consts.DRACONID_ATK_DMG)
 	return AbilityDef.new("?", 0, Target.NONE, "")
 
 
@@ -75,6 +78,10 @@ static func pool(hero_type: int) -> Array:
 					Consts.Skill.HARDENING, Consts.Skill.SHARDS, Consts.Skill.OVERLOAD,
 					Consts.Skill.SWAP, Consts.Skill.POWER_SURGE,
 					Consts.Skill.CRYSTAL_SHELL, Consts.Skill.DEATH_NOVA]
+		Consts.HeroType.DRACONID:
+			return [Consts.Skill.CLAWS, Consts.Skill.WING_SWEEP, Consts.Skill.FIRE_BREATH,
+					Consts.Skill.ROAR, Consts.Skill.FLIGHT,
+					Consts.Skill.PREDATOR_INSTINCT, Consts.Skill.DIVE, Consts.Skill.DEVOUR]
 	return []
 
 
@@ -292,6 +299,30 @@ static func _skill_def_raw(skill: int) -> AbilityDef:
 		Consts.Skill.SWAP:
 			return AbilityDef.new("Обмен местами", Consts.SWAP_MANA, Target.CELL,
 				"меняется местами с соседним юнитом (своим или чужим)")
+		Consts.Skill.FIRE_BREATH:
+			return AbilityDef.new("Огненное дыхание", Consts.FIRE_BREATH_MANA, Target.CELL,
+				"%d урона ВСЕМ на прямой линии (дальность до %d)" % [Consts.FIRE_BREATH_DMG, Consts.FIRE_BREATH_RANGE])
+		Consts.Skill.WING_SWEEP:
+			return AbilityDef.new("Взмах крыльев", Consts.WING_SWEEP_MANA, Target.NONE,
+				"%d урона всем соседям (радиус 1) + отбрасывание на %d" % [Consts.WING_SWEEP_DMG, Consts.WING_SWEEP_PUSH])
+		Consts.Skill.CLAWS:
+			return AbilityDef.new("Когти", Consts.CLAWS_MANA, Target.CELL,
+				"%d урона по 3 клеткам впереди (дуга)" % Consts.CLAWS_DMG)
+		Consts.Skill.ROAR:
+			return AbilityDef.new("Рёв", Consts.ROAR_MANA, Target.NONE,
+				"союзники в радиусе %d получают +%d к урону в этом раунде" % [Consts.ROAR_RADIUS, Consts.ROAR_BONUS])
+		Consts.Skill.FLIGHT:
+			return AbilityDef.new("Полёт", Consts.FLIGHT_MANA, Target.MOVE_PATH,
+				"ход на %d клетки, можно сквозь врагов" % Consts.FLIGHT_RANGE)
+		Consts.Skill.PREDATOR_INSTINCT:
+			return AbilityDef.new("Инстинкт хищника", Consts.PREDATOR_MANA, Target.NONE,
+				"стойка: если соседний враг уходит — шаг за ним и %d урона" % Consts.PREDATOR_DMG)
+		Consts.Skill.DIVE:
+			return AbilityDef.new("Пикирование", Consts.DIVE_MANA, Target.CELL,
+				"рывок на 1–%d клетки по прямой, %d урона всем клеткам вокруг точки приземления" % [Consts.DIVE_RANGE, Consts.DIVE_DMG])
+		Consts.Skill.DEVOUR:
+			return AbilityDef.new("Пожирание", Consts.DEVOUR_MANA, Target.CELL,
+				"мгновенно уничтожает соседнего врага, если у него %d HP или меньше" % Consts.DEVOUR_THRESHOLD)
 	return AbilityDef.new("?", 0, Target.NONE, "")
 
 

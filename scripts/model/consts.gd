@@ -6,7 +6,7 @@ extends RefCounted
 ## чтобы дизайнер мог править баланс в одном месте.
 
 enum Player { A, B }
-enum HeroType { HUNTER, FAIRY, CRYSTAL }
+enum HeroType { HUNTER, FAIRY, CRYSTAL, DRACONID }
 
 # Глобальный каталог скиллов. Герой берёт в бой SKILLS_PER_HERO штук из своего пула
 # (HeroDefs.pool). Резолвер/таргетинг диспетчеризуются по этому id, а не по индексу слота,
@@ -31,6 +31,8 @@ enum Skill {
 	HOOK,                                                      # Нейтральный — крюк
 	STAY_AWAY, CALTROPS, FAST_RELOAD,                          # Охотник — держись подальше / шипы / быстрая перезарядка
 	POWER_SURGE,                                               # Камнешип — переполняющая мощь
+	FIRE_BREATH, WING_SWEEP, CLAWS, ROAR, FLIGHT,              # Драконид
+	PREDATOR_INSTINCT, DIVE, DEVOUR,                           # Драконид — инстинкт / пикирование / пожирание
 }
 
 const SKILLS_PER_HERO := 3
@@ -40,7 +42,7 @@ const SKILLS_PER_HERO := 3
 # правилах/формате приказов/каталоге скиллов ломает синхронность незаметно.
 # БАМПАТЬ при любом изменении, влияющем на резолв: цифры баланса, новые скиллы, порядок
 # слотов, сериализация Order. Чисто визуальные/UI-правки версию не трогают.
-const PROTOCOL_VERSION := 29
+const PROTOCOL_VERSION := 30
 
 # Действие в слоте приказа. PASS — явное «нет действия» (занимает слот, но резолвится в пустоту;
 # нужно, чтобы соперник не видел, что слот пуст). В приказ уходит как пустой.
@@ -90,10 +92,12 @@ const PERSIST_ROUNDS := 0              # капкан/засада живут р
 const HUNTER_HP := 9
 const FAIRY_HP := 11
 const CRYSTAL_HP := 13
+const DRACONID_HP := 13
 
 const HUNTER_ATK_DMG := 2
 const FAIRY_ATK_DMG := 2
 const CRYSTAL_ATK_DMG := 3
+const DRACONID_ATK_DMG := 3
 
 const TRAP_MANA := 1
 const TRAP_DMG := 4
@@ -296,6 +300,55 @@ const POWER_SURGE_MANA := 0
 const POWER_SURGE_SELF_DMG := 3
 const POWER_SURGE_MANA_GAIN := 2
 
+# --- Драконид ---
+# Пламя (базовая атака): орто-сосед задаёт направление; DRACONID_ATK_DMG по соседней клетке И
+# следующей за ней на той же прямой (луч длиной 2). Урон в DRACONID_ATK_DMG (см. выше).
+
+# Огненное дыхание: FIRE_BREATH_DMG урона ВСЕМ юнитам (враг и союзник) на прямой орто-линии
+# до FIRE_BREATH_RANGE клеток; препятствие террейна обрывает луч.
+const FIRE_BREATH_MANA := 3
+const FIRE_BREATH_DMG := 4
+const FIRE_BREATH_RANGE := 4
+
+# Взмах крыльев: WING_SWEEP_DMG всем соседям (8 сторон, радиус 1, включая союзников) и отброс
+# на WING_SWEEP_PUSH клетку от Драконида.
+const WING_SWEEP_MANA := 2
+const WING_SWEEP_DMG := 3
+const WING_SWEEP_PUSH := 1
+
+# Когти: орто-сосед задаёт направление; CLAWS_DMG по 3 клеткам-дуге впереди (передняя + две
+# диагонально-передние). Бьёт всех на этих клетках.
+const CLAWS_MANA := 1
+const CLAWS_DMG := 3
+
+# Рёв: союзники в радиусе ROAR_RADIUS (Chebyshev, включая самого Драконида) получают
+# +ROAR_BONUS к урону до конца этого раунда (стойка-бафф, сбрасывается в начале след. раунда).
+const ROAR_MANA := 2
+const ROAR_RADIUS := 3
+const ROAR_BONUS := 2
+
+# Полёт: ход по прямому пути до FLIGHT_RANGE клеток; можно пролетать СКВОЗЬ врагов (приземление —
+# только на свободную клетку). Как ход, блокируется обездвиживанием.
+const FLIGHT_MANA := 2
+const FLIGHT_RANGE := 3
+
+# Инстинкт хищника: СТОЙКА на 1 раунд. Пока взведена, когда соседний (Chebyshev 1) враг САМ уходит
+# со своей клетки (ход/рывок/полёт и т.п. — не отброс), Драконид делает шаг в освободившуюся клетку
+# и наносит PREDATOR_DMG урона беглецу. Одноразовый рывок за раунд; сбрасывается на след. раунде.
+const PREDATOR_MANA := 1
+const PREDATOR_DMG := 3
+
+# Пикирование: рывок по прямой на 1..DIVE_RANGE клеток (останавливается перед юнитом/стеной), затем
+# DIVE_DMG урона ВСЕМ (8 сторон) вокруг точки приземления. Как ход, блокируется обездвиживанием.
+const DIVE_MANA := 3
+const DIVE_DMG := 3
+const DIVE_RANGE := 3
+
+# Пожирание: мгновенно уничтожает вражеского героя на соседней клетке (8 сторон), если его HP
+# не больше DEVOUR_THRESHOLD. Казнь идёт мимо щитов/митигаций (это не урон, а уничтожение).
+const DEVOUR_MANA := 4
+const DEVOUR_THRESHOLD := 7
+
 const ORDER_SLOTS := 4
 
 # 4-связность (орто) — движение
@@ -322,6 +375,7 @@ static func hero_name(t: int) -> String:
 		HeroType.HUNTER: return "Охотник"
 		HeroType.FAIRY: return "Фея"
 		HeroType.CRYSTAL: return "Камнешип"
+		HeroType.DRACONID: return "Драконид"
 	return "?"
 
 
@@ -330,4 +384,5 @@ static func hero_glyph(t: int) -> String:
 		HeroType.HUNTER: return "О"
 		HeroType.FAIRY: return "Ф"
 		HeroType.CRYSTAL: return "К"
+		HeroType.DRACONID: return "Д"
 	return "?"

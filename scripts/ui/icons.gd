@@ -73,6 +73,16 @@ const SKILL_FILES := {
 	Consts.Skill.CALTROPS: "caltrops.png",          # арт ещё не нарисован -> заглушка
 	Consts.Skill.FAST_RELOAD: "quick_reload.png",
 	Consts.Skill.POWER_SURGE: "crystal_charge.png",
+	# Драконид — свой арт ещё не нарисован, переиспользуем близкие по теме существующие иконки
+	Consts.Skill.FIRE_BREATH: "fire_breath.png",
+	Consts.Skill.WING_SWEEP: "wings.png",
+	Consts.Skill.CLAWS: "dragon_claws.png",
+	Consts.Skill.ROAR: "dragon_rawr.png",
+	Consts.Skill.FLIGHT: "fly.png",
+	# свой арт ещё не нарисован — переиспользуем близкие по теме существующие иконки
+	Consts.Skill.PREDATOR_INSTINCT: "predator_instinct.png",
+	Consts.Skill.DIVE: "dive.png",
+	Consts.Skill.DEVOUR: "devour.png",
 }
 
 
@@ -94,6 +104,7 @@ static func hero(hero_type: int) -> Texture2D:
 		Consts.HeroType.HUNTER: return tex(DIR + "hunter.png")
 		Consts.HeroType.FAIRY: return tex(DIR + "fairy.png")
 		Consts.HeroType.CRYSTAL: return tex(DIR + "crystalkind.png")
+		Consts.HeroType.DRACONID: return tex(DIR + "dragon.png")   # свой арт ещё не нарисован
 	return null
 
 
@@ -114,6 +125,7 @@ static func action(hero_type: int, act: int, skills: Array = []) -> Texture2D:
 			Consts.HeroType.HUNTER: return tex_opt(DIR + "shot.png")
 			Consts.HeroType.FAIRY: return tex_opt(DIR + "wisp.png")
 			Consts.HeroType.CRYSTAL: return tex_opt(DIR + "claws.png")
+			Consts.HeroType.DRACONID: return tex_opt(DIR + "flame.png")   # «Пламя» (свой арт ещё не нарисован)
 		return tex_opt(DIR + "base_attack.png")
 	if act >= Consts.Action.ABILITY1 and act <= Consts.Action.ABILITY4:
 		return for_skill(HeroDefs.skill_of_action(hero_type, act, skills))

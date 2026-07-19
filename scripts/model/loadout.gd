@@ -13,8 +13,13 @@ extends RefCounted
 const PATH := "user://loadout.cfg"
 const TEAM_SIZE := 3
 
-# Классы для секций пула в «Коллекции» (не состав отряда — тот теперь свободный).
+# Дефолтная/случайная тройка: по одному каждого из базовых классов (ровно TEAM_SIZE).
 const HEROES := [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL]
+
+# Все выбираемые классы героя (секции пула в «Коллекции» + белый список валидных type при
+# санитизации). Драконид доступен для набора, но в дефолтную/случайную тройку не входит.
+const CLASSES := [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL,
+		Consts.HeroType.DRACONID]
 
 static var _team: Array = []   # [{type:int, skills:Array}] длиной TEAM_SIZE
 # Режим «случайный бой»: игрок собрал отряд кнопкой «Рандом» и не правил руками. Тогда в
@@ -171,7 +176,7 @@ static func _sanitize_slot(entry: Variant, fallback: Dictionary) -> Dictionary:
 	elif typeof(entry) == TYPE_ARRAY and (entry as Array).size() >= 1 and typeof(entry[0]) == TYPE_INT:
 		type = int(entry[0])
 		skills = (entry as Array).slice(1)
-	if not (type in HEROES):
+	if not (type in CLASSES):
 		return {"type": int(fallback.type), "skills": (fallback.skills as Array).duplicate()}
 	return {"type": type, "skills": sanitize_hero(type, skills)}
 

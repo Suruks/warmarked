@@ -131,6 +131,8 @@ func begin_round() -> Array:
 		u.hardened = false
 		u.shards_armed = false
 		u.stay_away_armed = false   # стойка «Держись подальше» держит лишь свой раунд
+		u.dmg_buff_round = 0    # бафф урона от «Рёва» держит лишь свой раунд
+		u.predator_armed = false   # стойка «Инстинкт хищника» держит лишь свой раунд
 		u.disoriented = false   # дезориентация действует лишь на свой раунд
 		u.shell_used = false     # «Кристальный панцирь» — срезка снова доступна
 		u.block_amount = 0       # «Блок» — запас поглощения сбрасывается
