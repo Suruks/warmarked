@@ -109,7 +109,7 @@ static func is_passive(skill: int) -> bool:
 
 # Класс (hero_type), которому принадлежит скилл; -1 если ничей.
 static func hero_of_skill(skill: int) -> int:
-	for h in [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL]:
+	for h in [Consts.HeroType.HUNTER, Consts.HeroType.FAIRY, Consts.HeroType.CRYSTAL, Consts.HeroType.DRACONID]:
 		if skill in pool(h):
 			return h
 	return -1
